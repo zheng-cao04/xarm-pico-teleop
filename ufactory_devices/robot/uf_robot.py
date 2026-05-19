@@ -110,10 +110,10 @@ class UFRobot(object):
             print(f"UF Robot connection Failed, please check the hardware availability at ip: {self.config.robot_ip}")
             raise ConnectionError()
 
-        if self._gripper_type == GripperType.PikaGripper:
-            if not self.pika_gripper.connect():
-                print('Could not connect to pika gripper.')
-                raise ConnectionError()
+        # if self._gripper_type == GripperType.PikaGripper:
+        #     if not self.pika_gripper.connect():
+        #         print('Could not connect to pika gripper.')
+        #         raise ConnectionError()
 
         self.real_arm.motion_enable()
         self.real_arm.clean_error()
@@ -128,8 +128,16 @@ class UFRobot(object):
             _, self._start_joints = self.real_arm.get_servo_angle(is_radian=True)
             self._start_tcp_pose = None
 
-        self.real_arm.set_mode(self.config.robot_mode) 
+        self.robot_init(enable=False, init_gripper_pose=True)
+        self.real_arm.set_linear_spd_limit_factor(2.0)
+        self.real_arm.set_collision_sensitivity(0)
 
+    def robot_init(self, enable=True, init_gripper_pose=False):
+        if enable:
+            self.real_arm.clean_error()
+            self.real_arm.clean_warn()
+            self.real_arm.motion_enable(True)
+        self.real_arm.set_mode(self.config.robot_mode)
         self.real_arm.set_state(0)
 
         _, err_warn = self.real_arm.get_err_warn_code()
@@ -142,11 +150,15 @@ class UFRobot(object):
                 self.real_arm.set_gripper_enable(True)
                 self.real_arm.set_gripper_mode(0)
                 self.real_arm.set_gripper_speed(self._gripper_param.speed)
-                self.real_arm.set_gripper_position(self._gripper_param.open_pos)
+                if init_gripper_pose:
+                    self.real_arm.set_gripper_position(self._gripper_param.open_pos)
             elif self._gripper_type == GripperType.xArmGripperG2:
                 self.real_arm.set_gripper_enable(True)
                 self.real_arm.set_gripper_mode(0)
-                self.real_arm.set_gripper_g2_position(self._gripper_param.open_pos)
+                if init_gripper_pose:
+                    self.real_arm.open_bio_gripper()
+                if init_gripper_pose:
+                    self.real_arm.set_gripper_g2_position(self._gripper_param.open_pos)
             elif self._gripper_type == GripperType.BioGripperG2:
                 _, mode = self.real_arm.get_bio_gripper_control_mode()
                 if mode != 1:
@@ -155,19 +167,20 @@ class UFRobot(object):
             elif self._gripper_type == GripperType.PikaGripper:
                 self.pika_gripper.enable()
                 time.sleep(0.5)
-                self.pika_gripper.set_gripper_distance(self._gripper_param.open_pos)
+                if init_gripper_pose:
+                    self.pika_gripper.set_gripper_distance(self._gripper_param.open_pos)
             elif self._gripper_type == GripperType.RobotiqGripper:
                 self.real_arm.robotiq_reset()
                 self.real_arm.robotiq_set_activate(wait=True)
-                self.real_arm.robotiq_set_position(self._gripper_param.open_pos, wait=True)
-            self._gripper_param.grippos = self._gripper_param.open_pos
-            self._gripper_param.gripper_norm = self._gripper_param.open_pos
+                if init_gripper_pose:
+                    self.real_arm.robotiq_set_position(self._gripper_param.open_pos, wait=True)
+            if init_gripper_pose:
+                self._gripper_param.grippos = self._gripper_param.open_pos
+                self._gripper_param.gripper_norm = self._gripper_param.open_pos
             self.real_arm._arm._baud_checkset = False   
             _, err_warn = self.real_arm.get_err_warn_code()
             if err_warn[0] != 0:
                 raise RuntimeError(f"Failed to set correct state to Gripper! Controller Error code: {err_warn[0]} !")
-        self.real_arm.set_linear_spd_limit_factor(2.0)
-        self.real_arm.set_collision_sensitivity(0)
     
     def get_position(self, is_axis_angle=False):
         if is_axis_angle:

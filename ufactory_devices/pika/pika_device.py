@@ -80,7 +80,7 @@ class PikaDevice(object):
         dev_type: 1: sense, 2: gripper
         """
         if dev_type not in [1, 2, 3]:
-            raise '不支持dev_type={}'.format(dev_type)
+            raise ValueError('不支持dev_type={}'.format(dev_type))
         
         self._dev_type = dev_type
         self._pika_sense_port = kwargs.get('pika_sense_port', None)

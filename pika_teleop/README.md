@@ -7,145 +7,155 @@ GitHub: https://github.com/xArm-Developer/ufactory_teleop
 
 [![Watch the video](../assets/pika_teleoperation_system.jpg)](https://www.youtube.com/watch?v=D4L1dyyBriA)
 
-## System Requirements
+This guide is based on `pika_teleop/uf_robot_pika_teleop.py`. It explains how to use Pika Sense, Vive Tracker, and a UFACTORY xArm robot for Cartesian teleoperation.
 
-### Operating System
-- **Supported**: Ubuntu 22.04/Ubuntu 24.04
-- **Not supported**: Windows/Mac OS
+## 1. Overview
 
-### Python Version
-- Python 3.8/3.9/3.10
+The entry script reads the pose of the Vive Tracker exposed through Pika Sense, converts the tracker motion into a robot end-effector target pose, and sends the action to the robot through `UFRobot`.
 
-### Hardware Requirements
-- UFACTORY xArm robotic arm (xArm 5/6/7, Lite 6 or 850)
-- Pika Sense
+Main components:
 
-## Installation
+- `pika_teleop/uf_robot_pika_teleop.py`: Pika Sense teleoperation entry script.
+- `ufactory_devices/pika/pika_device.py`: Pika Sense and Pika Gripper serial detection and connection helper.
+- `ufactory_devices/robot/uf_robot.py`: xArm connection, initialization, motion, and gripper control wrapper.
+- `ufactory_devices/transformations.py`: pose, quaternion, RPY, axis-angle, and relative-motion transforms.
 
-### 1. Download the Project
+The script supports:
+
+- Pika Sense serial auto-detection.
+- Vive Tracker pose tracking through Pika SDK.
+- Command-state based start/stop control.
+- Optional gripper control from Pika Sense gripper distance.
+- xArm motion mode `7` by default, using axis-angle Cartesian targets.
+
+## 2. Requirements
+
+Recommended system:
+
+- Ubuntu 22.04 or Ubuntu 24.04.
+- Python 3.8, 3.9, or 3.10.
+- UFACTORY xArm robot.
+- Pika Sense.
+- Vive Tracker and Lighthouse base stations.
+- Optional Pika Gripper or other supported xArm-compatible grippers.
+
+## 3. Installation
+
+Clone the repository and enter the Pika teleoperation folder:
 
 ```bash
 git clone https://github.com/xArm-Developer/ufactory_teleop
 cd ufactory_teleop/pika_teleop
 ```
 
-### 2. Create Virtual Environment and Install Dependencies
+Create and activate a virtual environment:
 
-Create virtual environment (recommended)
 ```bash
 python3.9 -m venv py39
-```
-Activate virtual environment
-```bash
 source py39/bin/activate
 ```
 
-Install dependencies
+Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 pip install pysurvive
 ```
 
-## Usage
-
-### Basic Usage
+Install USB and device rules:
 
 ```bash
-python uf_robot_pika_teleop.py <robot_ip> [robot_mode] [gripper_type]
+sudo cp rules/*.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
 ```
 
-### Parameter Description
+Unplug and reconnect Pika Sense, Vive Tracker, and Pika Gripper after reloading udev rules.
 
-#### Required Parameters
-- `robot_ip`: IP address of the robotic arm, e.g., 192.168.1.200
+## 4. Configuration
 
-#### Optional Parameters
-
-**robot_mode** (default: 7)
-- `1`: Servo motion mode
-- `7`: Cartesian online trajectory planning mode (recommended)
-
-**gripper_type** (default: 0)
-- `0`: No gripper
-- `1`: xArm Gripper
-- `2`: xArm Gripper G2
-- `3`: BIO Gripper G2
-- `4`: Pika Gripper
-
-### How to Use
-
-#### 1. Set Permissions For USB
-You need to set the read and write permissions for the USB. The following command can automatically configure this. Please replug the USB after running the command.
-```bash
-sudo cp rules/*.rule /etc/udev/rules.d/
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-#### 2. Tracking Device Calibration
-
-First-time use of Pika Sense or when the base station position changes requires calibration.
-
-* Method 1: Use survive-cli.py for calibration [Recommended]
-1. Run the example in libsurvive repository：
-```bash
-git clone https://github.com/collabora/libsurvive.git
-cd libsurvive/bindings/python/examples
-python example.py 
-```
-
-Example output:
-```bash
-Info: Loaded drivers: GlobalSceneSolver, HTCVive
-Info: Adding tracked object WM0 from HTC
-Info: Device WM0 has watchman FW version 1592875850 and FPGA version 538/7/2; named '                       watchman'. Hardware id 0x84020109 Board rev: 3 (len 56)
-Info: Detected LH gen 2 system.
-Info: LightcapMode (WM0) 1 -> 2 (ff)
-Info: Adding lighthouse ch 1 (idx: 0, cnt: 1)
-Info: OOTX not set for LH in channel 1; attaching ootx decoder using device WM0
-Info: Adding lighthouse ch 0 (idx: 1, cnt: 2)
-Info: OOTX not set for LH in channel 0; attaching ootx decoder using device WM0
-Info: (0) Preamble found
-Info: (1) Preamble found
-Info: Got OOTX packet 0 bdeb5b80
-Info: Got OOTX packet 1 36df43d7
-Info: MPFIT success 1093702.051384/52.2148055877/0.0001598 (21 measurements, 1, MP_OK_CHI, 5 iters, up err 0.0002584, trace 0.0000177)
-Info: Global solve with 1 scenes for 1 with error of 1093702.051384/52.2148055877 (acc err 0.0003)
-Info: Using LH 1 (bdeb5b80) as reference lighthouse
-LH1: T: 1761879738.310068 P:  0.000000, 0.583524, 0.721219 R: -0.445283,-0.223126,-0.379739,-0.779574
-WM0: T: 1761879738.470426 P: -0.012316,-0.005824,-0.008128 R:  0.165526, 0.956895, 0.235385, 0.039320
-WM0: T: 1761879738.474582 P: -0.012323,-0.005919,-0.008163 R:  0.166495, 0.956762, 0.235292, 0.039036
-```
-
-2. Run calibration command
-```bash
-python survive-cli.py
-```
-
-Example output:
+Example configuration:
 
 ```bash
-Info: Loaded drivers: GlobalSceneSolver, HTCVive
-Info: Adding tracked object WM0 from HTC
-Info: Device WM0 has watchman FW version 1592875850 and FPGA version 538/7/2; named '                       watchman'. Hardware id 0x84020109 Board rev: 3 (len 56)
-Info: Detected LH gen 2 system.
-Info: LightcapMode (WM0) 1 -> 2 (ff)
-Info: OOTX not set for LH in channel 1; attaching ootx decoder using device WM0
-Info: OOTX not set for LH in channel 0; attaching ootx decoder using device WM0
-Info: MPFIT success 7032214.017596/263.9077546656/0.0001747 (53 measurements, 1, MP_OK_CHI, 167 iters, up err 0.0026960, trace 0.0001336)
-Info: Global solve with 1 scenes for 0 with error of 7032214.017596/263.9077546656 (acc err 0.0025)
-Info: Global solve with 1 scenes for 1 with error of 7032214.017596/263.9077546656 (acc err 0.0034)
-Info: Using LH 0 (36df43d7) as reference lighthouse
+pika_teleop/config/xarm6_pika_teleop.yaml
 ```
 
+```yaml
+RobotConfig:
+  robot_ip: "192.168.1.195"
+  gripper_type: 10
+  start_joints: [0, 0, 0, 0, 0, 0]
+  start_tcp_pose: [300, 0, 300, 3.1415927, 0, 0]
 
-* Method 2: Use ROS commands for calibration (for ROS1/2 developers)
+TeleoperatorConfig:
+  # pika_sense_port: "/dev/ttyUSB0"
+  # vive_tracker_id: "WM0"
+  use_gripper: True
+  tracker_to_robot_eef: [0, 0, 0, 3.1415927, -1.570796, 0]
+```
 
-Reference: https://agilexsupport.yuque.com/staff-hso6mo/peoot3/axi8hh9h9t2sh2su
+### RobotConfig
 
-#### 3. Teleoperation Example: Using Cartesian online planning mode with gripper
+| Field | Description |
+| --- | --- |
+| `robot_ip` | Robot controller IP address. |
+| `robot_mode` | Motion mode. `1` means servo Cartesian mode; `7` means online Cartesian trajectory planning mode. Default is `7`. |
+| `robot_speed` | Cartesian motion speed. Default is `250`. |
+| `robot_acc` | Cartesian motion acceleration. Default is `1000`. |
+| `gripper_type` | Gripper type. `0`: none, `1`: xArm Gripper, `2`: xArm Gripper G2, `3`: BIO Gripper G2, `10`: Pika Gripper, `11`: Robotiq Gripper. |
+| `gripper_port` | Pika Gripper serial port. Used only when `gripper_type: 10`. If omitted, the code tries to auto-detect it. |
+| `gripper_speed` | Gripper speed. `-1` uses the wrapper default. |
+| `gripper_force` | Gripper force. `-1` uses the wrapper default. |
+| `start_joints` | Joint angles used during startup, in radians. |
+| `start_tcp_pose` | Optional TCP pose after `start_joints`, in `[x, y, z, roll, pitch, yaw]`, with position in mm and orientation in radians. |
+
+### TeleoperatorConfig
+
+| Field | Description |
+| --- | --- |
+| `fps` | Control loop frequency. Default is `30`. |
+| `use_gripper` | Whether to read Pika Sense gripper distance and append a gripper command to the robot action. |
+| `pika_sense_port` | Pika Sense serial port, for example `/dev/ttyUSB0`. If omitted, `PikaDevice` scans serial devices with VID/PID `1a86:7522`. |
+| `vive_tracker_id` | Vive Tracker ID used by `pika_sense.get_pose()`. Default is `WM0`. Use the actual `LHR-...` ID if needed. |
+| `tracker_to_robot_eef` | Transform from tracker/Pika frame to robot end-effector frame, in `[x, y, z, roll, pitch, yaw]`. |
+
+## 5. Vive Tracker Calibration
+
+Run calibration before first use or whenever Lighthouse base stations move:
+
 ```bash
-python uf_robot_pika_teleop.py 192.168.1.100 7 1
+cd ufactory_teleop/pika_teleop
+python calibrate.py
 ```
 
-* Start teleoperation: Quickly open/close the Pika Sense gripper 2 times. Note that the pose and orientation of Pika Sense at startup will be used as the initial pose and orientation of the robotic arm.
-* End teleoperation: Quickly open/close the Pika Sense gripper 2 times.
+The calibration script removes `~/.config/libsurvive/config.json`, runs `pysurvive` with force calibration, and prints detected tracker poses. Keep base stations and trackers still during calibration.
+
+## 6. Running
+
+Run from the Pika teleoperation folder:
+
+```bash
+cd ufactory_teleop/pika_teleop
+python uf_robot_pika_teleop.py --config config/xarm6_pika_teleop.yaml
+```
+
+Startup sequence:
+
+1. Load the YAML configuration.
+2. Connect to the robot.
+3. Move the robot to `start_joints`, then optionally to `start_tcp_pose`.
+4. Connect Pika Sense and initialize Vive Tracker.
+5. Wait for `Enter to control robot with teleop >>>`.
+6. Enter the control loop after pressing Enter.
+
+The script uses Pika Sense command state changes to start and stop teleoperation. In normal operation, quickly opening/closing the Pika Sense clamp changes the command state.
+
+## 7. Safety Notes
+
+- Keep the robot workspace clear before launching the script.
+- The robot moves during initialization before teleoperation begins.
+- Verify `start_joints` and `start_tcp_pose` at low speed first.
+- Keep an operator near the emergency stop during testing.
+- Start with conservative `robot_speed` and `robot_acc`.
+- Keep Pika Sense still when starting control, because the first pose defines the teleoperation reference.
+
