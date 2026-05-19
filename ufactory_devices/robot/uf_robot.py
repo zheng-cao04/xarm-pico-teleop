@@ -67,6 +67,10 @@ class UFRobot(object):
 
         self._start_tcp_pose = self.config.start_tcp_pose
         self._start_joints = self.config.start_joints
+        self._cmd_cnt = 0
+
+        self._joint_speed = math.radians(self.config.robot_speed) if self.config.robot_mode == 6 else math.radians(90)
+        self._joint_acc = math.radians(self.config.robot_acc) if self.config.robot_mode == 6 else math.radians(500)
 
         self._gripper_type = self.config.gripper_type
         if self._gripper_type == GripperType.xArmGripper:
@@ -195,13 +199,36 @@ class UFRobot(object):
         if self.real_arm.error_code != 0:
             return self.real_arm.error_code
 
-        if self.config.robot_mode == 7:
-            code = self.real_arm.set_position_aa(action[:6], is_radian=True, speed=self.config.robot_speed, mvacc=self.config.robot_acc, wait=False)
+        if self.config.robot_mode == 6:
+            robot_action = action[:self.real_arm.axis]
+            gripper_norm = action[self.real_arm.axis] if len(action) > self.real_arm.axis else None
+
+            jnt_spd = 0.2 if self._cmd_cnt < 20 else self._joint_speed
+            wait_ = True if self._cmd_cnt == 0 else False
+
+            if wait_== False and self.real_arm.mode != 6:
+                self.real_arm.set_mode(6)
+                self.real_arm.set_state(0)
+                time.sleep(0.1)
+            elif wait_ and self.real_arm.mode != 0:
+                self.real_arm.set_mode(0)
+                self.real_arm.set_state(0)
+                time.sleep(0.1)
+
+            code = self.real_arm.set_servo_angle(angle=robot_action, speed=jnt_spd, mvacc=self._joint_acc, is_radian=True, wait=wait_)
+        elif self.config.robot_mode == 7:
+            robot_action = action[:6]
+            gripper_norm = action[6] if len(action) > 6 else None
+            code = self.real_arm.set_position_aa(robot_action, is_radian=True, speed=self.config.robot_speed, mvacc=self.config.robot_acc, wait=False)
         else:
-            code = self.real_arm.set_servo_cartesian_aa(action[:6], is_radian=True, speed=self.config.robot_speed, mvacc=self.config.robot_acc)
+            robot_action = action[:6]
+            gripper_norm = action[6] if len(action) > 6 else None
+            code = self.real_arm.set_servo_cartesian_aa(robot_action, is_radian=True, speed=self.config.robot_speed, mvacc=self.config.robot_acc)
         
-        if self._gripper_type > GripperType.NoGripper and len(action) > 6:
-            gripper_norm = action[6]
+        if self._cmd_cnt < 99999:
+            self._cmd_cnt += 1
+
+        if self._gripper_type > GripperType.NoGripper and gripper_norm is not None:
             if self._gripper_type == GripperType.xArmGripper:
                 grippos = self._gripper_param.get_grippos(gripper_norm)
                 modbus_datas = [0x08, 0x10, 0x07, 0x00, 0x00, 0x02, 0x04]
