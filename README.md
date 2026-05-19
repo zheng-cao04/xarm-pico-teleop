@@ -51,7 +51,7 @@ For details, see [pika_teleop/README.md](pika_teleop/README.md).
 
 ### UMI Teleoperation Solution
 
-A GELLO-inspired framework using FAST UMI devices for low-cost, intuitive teleoperation. Supports both single-arm and dual-arm setups with flexible tracking options.
+Using FAST UMI devices for low-cost, intuitive teleoperation. Supports both single-arm and dual-arm setups with flexible tracking options.
 
 - **Tracking**: UMI built-in SLAM or HTC Vive Tracker + Lighthouse base stations (configurable)
 - **Control**: Single-arm (`uf_robot_umi_teleop.py`) and dual-arm (`uf_robot_umi_teleop_dual.py`) teleoperation
