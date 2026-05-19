@@ -1,6 +1,6 @@
 # UFACTORY 遥操作系统
 
-本项目为 UFACTORY 机械臂提供遥操作解决方案，包含三套独立方案：
+本项目为 UFACTORY (深圳市众为创造科技有限公司) 机械臂提供遥操作解决方案，包含三套独立方案：
 
 1. **基于 Pika Sense 的遥操作**：利用 Agilex Robotics 的 Pika Sense 技术实现精准运动跟踪与控制。
 [![观看视频](assets/pika_teleoperation_system.jpg)](https://www.youtube.com/watch?v=D4L1dyyBriA)
@@ -116,5 +116,5 @@ python uf_robot_umi_teleop_dual.py --config config/xarm6_umi_teleop_dual.yaml
 
 - [Agilex Robotics Pika Sense](https://global.agilex.ai/products/pika)
 - [UFACTORY 协作机械臂](https://www.ufactory.cc/xarm-collaborative-robot/)
-- [FastUMI](https://www.fastumi.com/)
+- [LuMos FastUMI](https://www.fastumi.com/)
 - [GELLO: 通用低成本遥操作框架](https://wuphilipp.github.io/gello_site/)

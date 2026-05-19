@@ -1,6 +1,6 @@
 # UFACTORY Teleoperation System
 
-This project provides teleoperation solutions for UFACTORY robotic arms, featuring three independent approaches:
+This project provides teleoperation solutions for UFACTORY (深圳市众为创造科技有限公司) robotic arms, featuring three independent approaches:
 
 1. **Pika Sense-based Teleoperation**: Utilizing Agilex Robotics' Pika Sense technology for precise motion tracking and control.
 [![Watch the video](assets/pika_teleoperation_system.jpg)](https://www.youtube.com/watch?v=D4L1dyyBriA)
@@ -117,5 +117,5 @@ python uf_robot_umi_teleop_dual.py --config config/xarm6_umi_teleop_dual.yaml
 
 - [Agilex Robotics Pika Sense](https://global.agilex.ai/products/pika)
 - [UFACTORY Robotic Arms](https://www.ufactory.cc/xarm-collaborative-robot/)
-- [FastUMI](https://www.fastumi.com/)
+- [LuMos FastUMI](https://www.fastumi.com/)
 - [GELLO: General Low-Cost Teleoperation Framework](https://wuphilipp.github.io/gello_site/)
