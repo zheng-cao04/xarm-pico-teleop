@@ -51,7 +51,7 @@ ufactory_teleop/
 
 ### UMI 遥操作方案
 
-基于 GELLO 理念的框架，使用 FAST UMI 设备实现低成本、直观的遥操作。支持单臂和双臂配置，提供灵活的跟踪选项。
+使用 FAST UMI 设备实现低成本、直观的遥操作。支持单臂和双臂配置，提供灵活的跟踪选项。
 
 - **跟踪方式**：UMI 内置 SLAM 或 HTC Vive Tracker + Lighthouse 基站（可配置切换）
 - **控制方式**：单臂（`uf_robot_umi_teleop.py`）与双臂（`uf_robot_umi_teleop_dual.py`）遥操作
@@ -60,6 +60,10 @@ ufactory_teleop/
 - **双臂协作**：两个 UMI 设备通过独立线程同时控制两台 xArm 机械臂
 
 详见 [umi_teleop/README_ZH.md](umi_teleop/README_ZH.md)。
+
+### Gello 遥操作方案
+详见 [lerobot_ufactory_usage](https://github.com/xArm-Developer/lerobot/tree/main/src/lerobot/ufactory_usage)。
+
 
 ## 功能特性
 
@@ -109,8 +113,6 @@ python uf_robot_umi_teleop.py --config config/xarm6_umi_teleop.yaml
 ```bash
 python uf_robot_umi_teleop_dual.py --config config/xarm6_umi_teleop_dual.yaml
 ```
-### Gello 遥操作
-详见 [lerobot_ufactory_usage](https://github.com/xArm-Developer/lerobot/tree/main/src/lerobot/ufactory_usage)。
 
 ## 参考资料
 
