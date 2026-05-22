@@ -13,8 +13,7 @@ from typing import Tuple
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from ufactory_devices.transformations import Transformations
-from ufactory_devices.umi import XVLib
+from ufactory_devices.umi import XVLib, Transformations
 from ufactory_devices.robot import UFRobotConfig, UFRobot
 
 # 配置日志
@@ -40,7 +39,7 @@ class UFRobotTeleop(object):
         init_clamp_stream = self.config.use_gripper
 
         if self.config.use_vive_tracker:
-            from ufactory_devices.vive_tracker import ViveTracker
+            from ufactory_devices.umi.vive_tracker import ViveTracker
             self.tracker = ViveTracker()
         else:
             self.tracker = None

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from ufactory_devices.pika import PikaDevice
 from ufactory_devices.robot import UFRobotConfig, UFRobot
-from ufactory_devices.transformations import Transformations
+from ufactory_devices.umi import Transformations
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

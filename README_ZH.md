@@ -20,8 +20,7 @@ ufactory_teleop/
 │   ├── transformations.py    # 位姿数学工具（四元数、RPY、轴角、齐次矩阵）
 │   ├── robot/                # xArm 机械臂封装（连接、运动、夹爪控制）
 │   ├── pika/                 # Pika Sense 与 Pika Gripper 串口驱动
-│   ├── umi/                  # UMI 设备 SDK 绑定（基于 ctypes 的 XVLib 封装）
-│   └── vive_tracker/         # HTC Vive Tracker 驱动（pysurvive）
+│   ├── umi/                  # UMI 设备 SDK 绑定（基于 ctypes 的 XVLib 封装）和 HTC Vive Tracker 驱动（pysurvive）
 ├── pika_teleop/              # Pika Sense 遥操作方案
 │   ├── uf_robot_pika_teleop.py
 │   ├── calibrate.py

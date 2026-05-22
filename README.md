@@ -20,8 +20,7 @@ ufactory_teleop/
 │   ├── transformations.py    # Pose math (quaternion, RPY, axis-angle, homogeneous matrices)
 │   ├── robot/                # xArm robot wrapper (connection, motion, gripper control)
 │   ├── pika/                 # Pika Sense & Pika Gripper serial driver
-│   ├── umi/                  # UMI device SDK bindings (XVLib via ctypes)
-│   └── vive_tracker/         # HTC Vive Tracker driver (pysurvive)
+│   ├── umi/                  # UMI device SDK bindings (XVLib via ctypes) and HTC Vive Tracker driver (pysurvive)
 ├── pika_teleop/              # Pika Sense teleoperation solution
 │   ├── uf_robot_pika_teleop.py
 │   ├── calibrate.py

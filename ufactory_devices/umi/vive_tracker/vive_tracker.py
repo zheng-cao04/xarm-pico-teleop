@@ -4,7 +4,7 @@ import logging
 import threading
 import pysurvive
 import numpy as np
-from ..transformations import Transformations
+from .transformations import Transformations
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
