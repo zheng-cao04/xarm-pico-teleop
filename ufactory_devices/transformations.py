@@ -24,7 +24,8 @@ class Transformations:
             [    2 * (xz - wy),     2 * (yz + wx), 1 - 2 * (xx + yy)]
         ])
         return R
-    
+
+    @staticmethod
     def rotation_matrix_to_quaternion(R):
         """
         将3x3变换矩阵转换四元数

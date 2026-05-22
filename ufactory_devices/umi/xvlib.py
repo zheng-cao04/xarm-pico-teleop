@@ -182,11 +182,11 @@ class RgbImageData(ctypes.Structure):
         ("edgeTimestampUs", ctypes.c_longlong)
     ]
     def frame(self, rgb=False):
-        rgb_frame = np.array(self.data, dtype=np.uint8).reshape((self.height, self.width, 3))
+        rgb_frame = np.frombuffer(self.data[:self.dataSize], dtype=np.uint8).reshape((self.height, self.width, 3))
         if rgb:
-            return rgb_frame
+            return rgb_frame.copy()
         # RGB => BGR
-        return cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR, rgb_frame)  # 转换颜色空间
+        return cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)  # 转换颜色空间
 
 
 class GrayScaleImage(ctypes.Structure):
@@ -196,7 +196,9 @@ class GrayScaleImage(ctypes.Structure):
         ("data", ctypes.c_uint8 * (640*480))
     ]
     def frame(self):
-        return np.array(self.data[:self.width * self.height], dtype=np.uint8).reshape((self.height, self.width, 1))
+        buf_size = 640 * 480
+        count = min(self.width * self.height, buf_size)
+        return np.array(self.data[:count], dtype=np.uint8).reshape((self.height, self.width, 1))
 
 
 class FisheyeImagesData(ctypes.Structure):
@@ -220,7 +222,7 @@ class FisheyeImagesData(ctypes.Structure):
             up_frame = cv2.hconcat([frame0, frame1])
             down_frame = cv2.hconcat([frame2, frame3])
             return cv2.vconcat([up_frame, down_frame])
-        
+
 
 class EyetrackingImageData(ctypes.Structure):
     _fields_ = [
@@ -291,7 +293,7 @@ class XVLib:
         self.xv_uninit()
     
     @classmethod
-    def __load_librarry(cls):
+    def __load_library(cls):
         if cls._xvlib is None:
             # 加载动态库
             lib_dir = os.path.dirname(__file__)
@@ -305,20 +307,22 @@ class XVLib:
             logger.info('Library initialized successfully.')
 
     @classmethod
-    def xv_get_devices(cls):
-        cls.__load_librarry()
-        device_size = cls._xvlib.xv_get_devices_size()
-        devices = (DeviceStruct * device_size)()
-        if device_size <= 0:
-            return 0, devices
-        cls._xvlib.xv_get_devices(ctypes.byref(devices))
-        return device_size, devices
+    def xv_get_devices(cls, max_devices=16):
+        cls.__load_library()
+        devices = (DeviceStruct * max_devices)()
+        device_count = ctypes.c_int(0)
+        cls._xvlib.xv_get_devices(
+            ctypes.byref(devices),
+            ctypes.byref(device_count),
+            ctypes.c_int(max_devices)
+        )
+        return device_count.value, list(devices[:device_count.value])
 
     def xv_init(self, serial_number, init_slam, init_clamp_stream, init_color_camera, init_fisheye_cameras):
         return self._xvlib.xv_init(serial_number, init_slam, init_clamp_stream, init_color_camera, init_fisheye_cameras)
 
     def xv_uninit(self):
-        if self.instance_id > 0:
+        if self._xvlib is not None and self.instance_id > 0:
             return self._xvlib.xv_uninit(self.instance_id)
         else:
             return -1
@@ -462,7 +466,7 @@ class XVLib:
         return self._xvlib.xv_spheretrack_stream_uninit(self.instance_id)
     
     def xv_get_clamp_stream_data(self):
-        ret = self._xvlib.xv_get_clamp_stream_data(self.instance_id, ctypes.byref(self._clamp_data), self.instance_id)
+        ret = self._xvlib.xv_get_clamp_stream_data(self.instance_id, ctypes.byref(self._clamp_data))
         return ret, self._clamp_data
     
     def xv_get_color_image_data(self):
@@ -478,7 +482,7 @@ class XVLib:
         return ret, self._depth_image_data
 
     def xv_get_fisheye_images_data(self, index=5):
-        ret = self._xvlib.xv_get_fisheye_images_data(self.instance_id, ctypes.byref(self._fisheye_images_data), ctypes.c_uint(index))
+        ret = self._xvlib.xv_get_fisheye_images_data(self.instance_id, ctypes.byref(self._fisheye_images_data), ctypes.c_size_t(index))
         return ret, self._fisheye_images_data
     
     def xv_get_slam_data(self):
@@ -486,11 +490,11 @@ class XVLib:
         return ret, self._slam_data
     
     def xv_get_slam_pose(self, prediction):
-        ret = self._xvlib.get_slam_pose(self.instance_id, ctypes.byref(self._slam_data), ctypes.c_double(prediction))
+        ret = self._xvlib.xv_get_slam_pose(self.instance_id, ctypes.byref(self._slam_data), ctypes.c_double(prediction))
         return ret, self._slam_data
     
     def xv_get_slam_pose_at(self, timestamp):
-        ret = self._xvlib.get_slam_pose_at(self.instance_id, ctypes.byref(self._slam_data), ctypes.c_double(timestamp))
+        ret = self._xvlib.xv_get_slam_pose_at(self.instance_id, ctypes.byref(self._slam_data), ctypes.c_double(timestamp))
         return ret, self._slam_data
     
     def xv_get_external_stream_data(self):
@@ -510,7 +514,7 @@ class XVLib:
             1: MF
             2: Unknown
         """
-        return self._xvlib.xv_set_color_camera_rgb_mode(ctypes.c_int(mode))
+        return self._xvlib.xv_set_color_camera_rgb_mode(self.instance_id, ctypes.c_int(mode))
     
     def xv_set_color_camera_resolution(self, resolution):
         """
@@ -524,16 +528,16 @@ class XVLib:
             4: RGB_2560x1920 (not supported now)
             5: RGB_3840x2160 (not supported now)
         """
-        return self._xvlib.xv_set_color_camera_resolution(ctypes.c_int(resolution))
+        return self._xvlib.xv_set_color_camera_resolution(self.instance_id, ctypes.c_int(resolution))
     
     def xv_set_color_camera_framerate(self, framerate):
-        return self._xvlib.xv_set_color_camera_framerate(ctypes.c_float(framerate))
+        return self._xvlib.xv_set_color_camera_framerate(self.instance_id, ctypes.c_float(framerate))
     
     def xv_set_color_camera_brightness(self, brightness):
-        return self._xvlib.xv_set_color_camera_brightness(ctypes.c_int(brightness))
+        return self._xvlib.xv_set_color_camera_brightness(self.instance_id, ctypes.c_int(brightness))
     
     def xv_set_tof_camera_mode(self, mode):
-        return self._xvlib.xv_set_tof_camera_mode(ctypes.c_int(mode))
+        return self._xvlib.xv_set_tof_camera_mode(self.instance_id, ctypes.c_int(mode))
     
     def xv_set_tof_camera_stream_mode(self, mode):
         """
@@ -546,7 +550,7 @@ class XVLib:
             3: None
             4: CloudOnLeftHandSlam
         """
-        return self._xvlib.xv_set_tof_camera_stream_mode(ctypes.c_int(mode))
+        return self._xvlib.xv_set_tof_camera_stream_mode(self.instance_id, ctypes.c_int(mode))
     
     def xv_set_tof_camera_distance_mode(self, mode):
         """
@@ -557,7 +561,7 @@ class XVLib:
             1: Middle
             2: Long
         """
-        return self._xvlib.xv_set_tof_camera_distance_mode(ctypes.c_int(mode))
+        return self._xvlib.xv_set_tof_camera_distance_mode(self.instance_id, ctypes.c_int(mode))
 
     def xv_set_tof_camera_resolution(self, resolution):
         """
@@ -569,7 +573,7 @@ class XVLib:
             1: QVGA
             2: HQVGA
         """
-        return self._xvlib.xv_set_tof_camera_resolution(ctypes.c_int(resolution))
+        return self._xvlib.xv_set_tof_camera_resolution(self.instance_id, ctypes.c_int(resolution))
     
     def xv_set_tof_camera_framerate(self, framerate):
         """
@@ -583,25 +587,25 @@ class XVLib:
             4: FPS_25
             5: FPS_30
         """
-        return self._xvlib.xv_set_tof_camera_framerate(ctypes.c_float(framerate))
+        return self._xvlib.xv_set_tof_camera_framerate(self.instance_id, ctypes.c_float(framerate))
     
     def xv_set_tof_camera_brightness(self, brightness):
-        return self._xvlib.xv_set_tof_camera_brightness(ctypes.c_int(brightness))
+        return self._xvlib.xv_set_tof_camera_brightness(self.instance_id, ctypes.c_int(brightness))
     
     def xv_set_fisheye_cameras_resolution(self, resolution):
-        return self._xvlib.xv_set_fisheye_cameras_resolution(ctypes.c_int(resolution))
+        return self._xvlib.xv_set_fisheye_cameras_resolution(self.instance_id, ctypes.c_int(resolution))
     
-    def xv_set_fisheye_cameras_framerate(self, resolution):
-        return self._xvlib.xv_set_fisheye_cameras_framerate(ctypes.c_float(resolution))
+    def xv_set_fisheye_cameras_framerate(self, framerate):
+        return self._xvlib.xv_set_fisheye_cameras_framerate(self.instance_id, ctypes.c_float(framerate))
 
     def xv_set_fisheye_cameras_brightness(self, brightness):
-        return self._xvlib.xv_set_fisheye_cameras_brightness(ctypes.c_int(brightness))
+        return self._xvlib.xv_set_fisheye_cameras_brightness(self.instance_id, ctypes.c_int(brightness))
 
     def xv_set_eyetracking_camera_resolution(self, resolution):
-        return self._xvlib.xv_set_eyetracking_camera_resolution(ctypes.c_int(resolution))
+        return self._xvlib.xv_set_eyetracking_camera_resolution(self.instance_id, ctypes.c_int(resolution))
     
     def xv_set_eyetracking_camera_framerate(self, framerate):
-        return self._xvlib.xv_set_eyetracking_camera_framerate(ctypes.c_float(framerate))
+        return self._xvlib.xv_set_eyetracking_camera_framerate(self.instance_id, ctypes.c_float(framerate))
     
     def xv_set_eyetracking_camera_brightness(self, brightness):
-        return self._xvlib.xv_set_eyetracking_camera_brightness(ctypes.c_int(brightness))
+        return self._xvlib.xv_set_eyetracking_camera_brightness(self.instance_id, ctypes.c_int(brightness))
