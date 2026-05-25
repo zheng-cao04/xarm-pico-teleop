@@ -160,14 +160,14 @@ class UFRobot(object):
                 self.real_arm.set_gripper_enable(True)
                 self.real_arm.set_gripper_mode(0)
                 if init_gripper_pose:
-                    self.real_arm.open_bio_gripper()
-                if init_gripper_pose:
                     self.real_arm.set_gripper_g2_position(self._gripper_param.open_pos)
             elif self._gripper_type == GripperType.BioGripperG2:
                 _, mode = self.real_arm.get_bio_gripper_control_mode()
                 if mode != 1:
                     self.real_arm.set_bio_gripper_control_mode(1)
                 self.real_arm.set_bio_gripper_enable(True)
+                if init_gripper_pose:
+                    self.real_arm.open_bio_gripper()
             elif self._gripper_type == GripperType.PikaGripper:
                 self.pika_gripper.enable()
                 time.sleep(0.5)
