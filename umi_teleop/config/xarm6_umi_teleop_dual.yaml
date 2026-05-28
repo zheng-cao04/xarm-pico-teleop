@@ -8,8 +8,8 @@ L:
 
   TeleoperatorConfig:
     serial_number: "250801DR48FP26001318"
-    use_vive_tracker: True
-    vive_tracker_id: "LHR-555DC7BF"
+    # use_vive_tracker: True
+    # vive_tracker_id: "LHR-555DC7BF"
     use_gripper: True
     tracker_to_robot_eef: [0, 0, 0, 0, 0, -1.570796]
     robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
@@ -22,8 +22,8 @@ R:
 
   TeleoperatorConfig:
     serial_number: "250801DR48FP26001295"
-    use_vive_tracker: True
-    vive_tracker_id: "LHR-2425BAD3"
+    # use_vive_tracker: True
+    # vive_tracker_id: "LHR-2425BAD3"
     use_gripper: True
     tracker_to_robot_eef: [0, 0, 0, 0, 0, 1.570796]
     robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
