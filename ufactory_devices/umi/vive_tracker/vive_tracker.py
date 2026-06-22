@@ -132,6 +132,7 @@ class ViveTracker(metaclass=SingletonMeta):
             self._collector_thread = threading.Thread(target=self._pose_collector)
             self._collector_thread.daemon = True
             self._collector_thread.start()
+            return True
         except Exception as e:
             logger.error(f"Error connecting to Vive Tracker: {e}")
             self.running = False
