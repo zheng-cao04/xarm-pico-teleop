@@ -107,7 +107,7 @@ class Transformations:
     @staticmethod
     def rxryrz_to_rotation_matrix(rx, ry, rz):
         """轴角rxryrz到旋转矩阵的转换"""
-        axis_angle = [rx, ry, rz]
+        axis_angle = np.array([rx, ry, rz], dtype=float)
         theta = np.linalg.norm(axis_angle)
         
         # 如果角度接近0，返回单位矩阵

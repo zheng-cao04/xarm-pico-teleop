@@ -1,0 +1,48 @@
+XRConfig:
+  backend: "udp"
+  udp_host: "0.0.0.0"
+  udp_port: 5005
+  fps: 50
+  use_deadman: true
+  deadman_threshold: 0.5
+  recalibrate_button: "right_a"
+  stop_button: "right_b"
+  max_frame_age_s: 0.25
+
+L:
+  RobotConfig:
+    robot_ip: "192.168.1.29"
+    robot_speed: 100
+    robot_acc: 500
+    gripper_type: 2
+    start_joints: [0, -0.2268928, -0.418879, -3.1415927, 0.942477796, -1.570796]
+    start_tcp_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+
+  TeleoperatorConfig:
+    controller: "left"
+    use_gripper: true
+    gripper_input: "trigger"
+    deadman_input: "grip"
+    position_scale: 1.0
+    controller_to_robot_eef: [0, 0, 0, 0, 0, -1.570796]
+    robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    use_current_robot_pose_as_base: true
+
+R:
+  RobotConfig:
+    robot_ip: "192.168.1.195"
+    robot_speed: 100
+    robot_acc: 500
+    gripper_type: 2
+    start_joints: [0, -0.2268928, -0.418879, -3.1415927, 0.942477796, -1.570796]
+    start_tcp_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+
+  TeleoperatorConfig:
+    controller: "right"
+    use_gripper: true
+    gripper_input: "trigger"
+    deadman_input: "grip"
+    position_scale: 1.0
+    controller_to_robot_eef: [0, 0, 0, 0, 0, 1.570796]
+    robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    use_current_robot_pose_as_base: true

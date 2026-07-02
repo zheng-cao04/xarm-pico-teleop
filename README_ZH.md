@@ -1,6 +1,6 @@
 # UFACTORY 遥操作系统
 
-本项目为 UFACTORY (深圳市众为创造科技有限公司) 机械臂提供遥操作解决方案，包含三套独立方案：
+本项目为 UFACTORY (深圳市众为创造科技有限公司) 机械臂提供遥操作解决方案，包含四套独立方案：
 
 1. **基于 Pika Sense 的遥操作**：利用 Agilex Robotics 的 Pika Sense 技术实现精准运动跟踪与控制。
 [![观看视频](assets/pika_teleoperation_system.jpg)](https://www.bilibili.com/video/BV1791rB4Egk/?spm_id_from=333.1387)
@@ -8,6 +8,7 @@
 [![观看视频](assets/fastumi.jpg)](https://www.bilibili.com/video/BV1qAGm6fEZE/?spm_id_from=333.1387)
 3. **基于 GELLO 的遥操作框架**：基于开源 GELLO 框架（https://wuphilipp.github.io/gello_site/）的理念  
 [![观看视频](assets/gello.png)](https://www.bilibili.com/video/BV12xFjzzEaX/?spm_id_from=333.1387)
+4. **PICO / OpenXR 双臂遥操作**：通过 GSPlayground UDP 或 XRoboToolkit 读取 PICO4 Ultra Enterprise 头显与左右手柄，并控制双 xArm。
 
 ## 概述
 
@@ -34,6 +35,11 @@ ufactory_teleop/
 │   ├── config/
 │   ├── rules/
 │   └── xvsdk/
+├── pico_teleop/              # PICO / OpenXR 双臂遥操作方案
+│   ├── uf_robot_pico_teleop_dual.py
+│   ├── pico_xr_client.py
+│   ├── xrobotoolkit_xr_client.py
+│   └── config/
 └── gello_teleop/             # Gello 遥操作方案
     ├── uf_robot_gello_teleop.py
     ├── config/
@@ -64,6 +70,17 @@ ufactory_teleop/
 - **双臂协作**：两个 UMI 设备通过独立线程同时控制两台 xArm 机械臂
 
 详见 [umi_teleop/README_ZH.md](umi_teleop/README_ZH.md)。
+
+### PICO / OpenXR 双臂遥操作方案
+
+使用 PICO4 Ultra Enterprise 或其他 OpenXR 设备读取 HMD、左手柄、右手柄的 6D 位姿和按键状态。支持 GSPlayground UDP backend，也支持 XRoboToolkit backend 用于一台 Ubuntu 电脑直接接收 PICO 输入并控制双 xArm。
+
+- **跟踪方式**：Unity OpenXR + UDP 数据流，或 XRoboToolkit PICO App + Ubuntu PC Service
+- **控制方式**：双臂笛卡尔末端遥操作
+- **夹爪支持**：使用左右 trigger 分别控制左右夹爪
+- **安全启停**：默认按住对应手柄 grip 才控制该侧机械臂
+
+详见 [pico_teleop/README_ZH.md](pico_teleop/README_ZH.md)。
 
 ### Gello 遥操作方案
 
@@ -131,6 +148,18 @@ python uf_robot_umi_teleop.py --config config/xarm6_umi_teleop.yaml
 
 ```bash
 python uf_robot_umi_teleop_dual.py --config config/xarm6_umi_teleop_dual.yaml
+```
+
+### PICO / OpenXR 双臂遥操作
+
+详见 [pico_teleop/README_ZH.md](pico_teleop/README_ZH.md)。
+
+快速启动：
+
+```bash
+cd ufactory_teleop/pico_teleop
+python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_dual.yaml --sim --sim-viewer console
+python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_dual.yaml
 ```
 
 ### Gello 遥操作

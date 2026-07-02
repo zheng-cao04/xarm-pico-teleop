@@ -133,8 +133,8 @@ class UFRobot(object):
             self._start_tcp_pose = None
 
         self.robot_init(enable=False, init_gripper_pose=True)
-        self.real_arm.set_linear_spd_limit_factor(2.0)
-        self.real_arm.set_collision_sensitivity(0)
+        self.real_arm.set_linear_spd_limit_factor(1.0)
+        self.real_arm.set_collision_sensitivity(1)
 
     def robot_init(self, enable=True, init_gripper_pose=False):
         if enable:

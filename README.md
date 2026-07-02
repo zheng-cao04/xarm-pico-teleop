@@ -1,6 +1,6 @@
 # UFACTORY Teleoperation System
 
-This project provides teleoperation solutions for UFACTORY (深圳市众为创造科技有限公司) robotic arms, featuring three independent approaches:
+This project provides teleoperation solutions for UFACTORY (深圳市众为创造科技有限公司) robotic arms, featuring four independent approaches:
 
 1. **Pika Sense-based Teleoperation**: Utilizing Agilex Robotics' Pika Sense technology for precise motion tracking and control.
 [![Watch the video](assets/pika_teleoperation_system.jpg)](https://www.youtube.com/watch?v=D4L1dyyBriA)
@@ -8,6 +8,7 @@ This project provides teleoperation solutions for UFACTORY (深圳市众为创�
 [![Watch the video](assets/fastumi.jpg)](https://youtu.be/qlVHa8qA6oo)
 3. **GELLO-inspired Framework**: Based on concepts from the open-source GELLO framework (https://wuphilipp.github.io/gello_site/)
 [![Watch the video](assets/gello.png)](https://www.youtube.com/watch?v=wTiWLiHciT8)
+4. **PICO / OpenXR dual-arm teleoperation**: Uses GSPlayground UDP or XRoboToolkit to read PICO4 Ultra Enterprise HMD/controller poses for dual-xArm control.
 
 ## Overview
 
@@ -34,6 +35,11 @@ ufactory_teleop/
 │   ├── config/
 │   ├── rules/
 │   └── xvsdk/
+├── pico_teleop/              # PICO / OpenXR dual-arm teleoperation solution
+│   ├── uf_robot_pico_teleop_dual.py
+│   ├── pico_xr_client.py
+│   ├── xrobotoolkit_xr_client.py
+│   └── config/
 └── gello_teleop/             # Gello teleoperation solution
     ├── uf_robot_gello_teleop.py
     ├── config/
@@ -64,6 +70,17 @@ Using FastUMI for intuitive teleoperation. Supports both single-arm and dual-arm
 - **Dual-Arm**: Two UMI devices control two xArm robots simultaneously via independent threads
 
 For details, see [umi_teleop/README.md](umi_teleop/README.md).
+
+### PICO / OpenXR Dual-Arm Teleoperation
+
+Uses a PICO4 Ultra Enterprise or another OpenXR device to read HMD, left-controller, and right-controller 6-DOF poses plus controller buttons. It supports the GSPlayground UDP backend and an XRoboToolkit backend for single-Ubuntu PICO-to-xArm deployment.
+
+- **Tracking**: Unity OpenXR + UDP pose stream, or XRoboToolkit PICO App + Ubuntu PC Service
+- **Control**: Dual-arm Cartesian end-effector teleoperation
+- **Gripper Support**: Left/right triggers control left/right grippers
+- **Deadman Control**: By default, each arm only moves while that controller's grip is held
+
+For details, see [pico_teleop/README_ZH.md](pico_teleop/README_ZH.md).
 
 ### Gello Teleoperation Solution
 
@@ -130,6 +147,16 @@ Quick start (dual arm):
 
 ```bash
 python uf_robot_umi_teleop_dual.py --config config/xarm6_umi_teleop_dual.yaml
+```
+
+### PICO / OpenXR Dual-Arm Teleoperation
+
+Quick start:
+
+```bash
+cd ufactory_teleop/pico_teleop
+python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_dual.yaml --sim --sim-viewer console
+python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_dual.yaml
 ```
 
 ### Gello Teleoperation
