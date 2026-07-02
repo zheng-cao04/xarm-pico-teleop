@@ -23,6 +23,8 @@ from transformations import Transformations
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("pico_teleop")
 
+DEFAULT_TCP_POSE = (350, 0, 250, np.pi, 0, -np.pi / 2)
+
 
 @dataclass
 class PicoXRConfig:
@@ -59,8 +61,9 @@ class PicoArmTeleopConfig:
     gripper_input: str = "trigger"
     deadman_input: str = "grip"
     position_scale: float = 1.0
+    position_delta_frame: str = "world"
     controller_to_robot_eef: Tuple[float, ...] = (0, 0, 0, 0, 0, 0)
-    robot_base_pose: Tuple[float, ...] = (350, 0, 250, -np.pi / 2, 0, -np.pi / 2)
+    robot_base_pose: Tuple[float, ...] = DEFAULT_TCP_POSE
     use_current_robot_pose_as_base: bool = True
 
 
@@ -70,6 +73,7 @@ class SimConfig:
     print_hz: float = 5.0
     trail_size: int = 200
     axis_length: float = 60.0
+    mujoco_arm: str = "both"
 
 
 def _normalize_arm_config(raw_config):
@@ -114,13 +118,23 @@ class SimulatedUFRobot:
     def __init__(self, name, config: RobotConfig):
         self.name = name
         self.config = config
-        self.pose_rpy = list(config.start_tcp_pose or (350, 0, 250, -np.pi / 2, 0, -np.pi / 2))
+        self.pose_rpy = list(config.start_tcp_pose or DEFAULT_TCP_POSE)
         self.pose_aa = Transformations.rotation_matrix_to_xyzrxryrz(
             Transformations.xyzrpy_to_rotation_matrix(*self.pose_rpy)
         )
         self.gripper_norm = 0.0
         self.last_action = None
+        self.reset_count = 0
         logger.info("%s sim robot initialized at TCP pose %s", self.name, self.pose_rpy)
+
+    def reset_pose(self, pose_rpy):
+        self.pose_rpy = list(pose_rpy)
+        self.pose_aa = Transformations.rotation_matrix_to_xyzrxryrz(
+            Transformations.xyzrpy_to_rotation_matrix(*self.pose_rpy)
+        )
+        self.last_action = None
+        self.reset_count += 1
+        logger.info("%s sim robot reset to TCP pose %s", self.name, self.pose_rpy)
 
     def get_position(self, is_axis_angle=False):
         if is_axis_angle:
@@ -261,21 +275,40 @@ class PicoArmTeleop:
         )
         self.robot_base_matrix = Transformations.xyzrpy_to_rotation_matrix(*self.config.robot_base_pose)
         self.begin_controller_robot_matrix = None
+        self.begin_controller_pos_mm = None
+        if self.config.position_delta_frame not in ("world", "controller"):
+            raise ValueError(f"{name}: position_delta_frame must be 'world' or 'controller'")
 
     def clear_reference(self):
         self.begin_controller_robot_matrix = None
+        self.begin_controller_pos_mm = None
         if hasattr(self.robot, "last_action"):
             self.robot.last_action = None
 
-    def reset_reference(self, frame: XRFrame):
-        if self.config.use_current_robot_pose_as_base:
+    def pause_output(self):
+        if hasattr(self.robot, "last_action"):
+            self.robot.last_action = None
+
+    def reset_reference(self, frame: XRFrame, use_current_robot_pose: bool | None = None, reset_robot_to_base=False):
+        if use_current_robot_pose is None:
+            use_current_robot_pose = self.config.use_current_robot_pose_as_base
+
+        if reset_robot_to_base and hasattr(self.robot, "reset_pose"):
+            self.robot.reset_pose(self.config.robot_base_pose)
+
+        if use_current_robot_pose:
             code, pose = self.robot.get_position(is_axis_angle=False)
             if code == 0 and pose is not None and len(pose) >= 6:
                 self.robot_base_matrix = Transformations.xyzrpy_to_rotation_matrix(*pose[:6])
             else:
                 logger.warning("%s: failed to read current robot pose, using configured robot_base_pose", self.name)
+                self.robot_base_matrix = Transformations.xyzrpy_to_rotation_matrix(*self.config.robot_base_pose)
+        else:
+            self.robot_base_matrix = Transformations.xyzrpy_to_rotation_matrix(*self.config.robot_base_pose)
         self.begin_controller_robot_matrix = self._controller_robot_matrix(frame)
-        logger.info("%s: teleop reference reset from %s controller", self.name, self.config.controller)
+        self.begin_controller_pos_mm = self._controller_pos_mm(frame)
+        base_mode = "current robot pose" if use_current_robot_pose else "configured base pose"
+        logger.info("%s: teleop reference reset from %s controller using %s", self.name, self.config.controller, base_mode)
 
     def enabled(self, frame: XRFrame, xr_config: PicoXRConfig):
         if not xr_config.use_deadman:
@@ -290,6 +323,8 @@ class PicoArmTeleop:
         controller_robot_matrix = self._controller_robot_matrix(frame)
         if self.begin_controller_robot_matrix is None:
             self.begin_controller_robot_matrix = controller_robot_matrix
+        if self.begin_controller_pos_mm is None:
+            self.begin_controller_pos_mm = self._controller_pos_mm(frame)
 
         robot_target_pose = Transformations.tracker_robot_matrix_to_robot_pose(
             self.begin_controller_robot_matrix,
@@ -298,6 +333,10 @@ class PicoArmTeleop:
             is_axis_angle=True,
         )
         action = list(robot_target_pose[:6])
+        if self.config.position_delta_frame == "world":
+            base_pos = self.robot_base_matrix[:3, 3]
+            pos_delta = self._controller_pos_mm(frame) - self.begin_controller_pos_mm
+            action[:3] = (base_pos + pos_delta).tolist()
         if self.config.use_gripper:
             gripper_norm = _button_value(
                 frame.button_states,
@@ -311,9 +350,8 @@ class PicoArmTeleop:
         return self.robot.send_action(action)
 
     def _controller_robot_matrix(self, frame: XRFrame):
-        pos_m = frame.link_pos[self.controller_index]
+        x, y, z = self._controller_pos_mm(frame).tolist()
         quat_xyzw = frame.link_quat_xyzw[self.controller_index]
-        x, y, z = (pos_m * 1000.0 * self.config.position_scale).tolist()
         return Transformations.tracker_pose_to_robot_matrix(
             x,
             y,
@@ -321,6 +359,10 @@ class PicoArmTeleop:
             quat_xyzw,
             self.controller_to_robot_matrix,
         )
+
+    def _controller_pos_mm(self, frame: XRFrame):
+        pos_m = frame.link_pos[self.controller_index]
+        return pos_m * 1000.0 * self.config.position_scale
 
 
 class PicoDualArmTeleop:
@@ -334,17 +376,19 @@ class PicoDualArmTeleop:
         sim_config: SimConfig | None = None,
     ):
         self.xr_config = xr_config
-        self.xr_client = _make_xr_client(xr_config)
+        self.xr_client = None
         left_robot = SimulatedUFRobot("L", left_robot_config) if sim_config is not None else None
         right_robot = SimulatedUFRobot("R", right_robot_config) if sim_config is not None else None
         self.left = PicoArmTeleop("L", left_config, left_robot_config, robot=left_robot)
         self.right = PicoArmTeleop("R", right_config, right_robot_config, robot=right_robot)
-        self.sim_viewer = self._make_sim_viewer(sim_config) if sim_config is not None else None
+        self.sim_config = sim_config
+        self.sim_viewer = None
         self._last_recalibrate_pressed = False
         self._last_stop_pressed = False
 
     def shutdown(self):
-        self.xr_client.shutdown()
+        if self.xr_client is not None:
+            self.xr_client.shutdown()
         if self.sim_viewer is not None:
             self.sim_viewer.close()
 
@@ -359,24 +403,32 @@ class PicoDualArmTeleop:
             except RuntimeError as exc:
                 logger.warning("%s; falling back to console sim viewer", exc)
                 return ConsoleSimViewer(sim_config)
-        raise ValueError("sim viewer must be one of: plot, console, none")
+        if sim_config.viewer == "mujoco":
+            from mujoco_sim_viewer import MujocoSimViewer
+
+            return MujocoSimViewer(sim_config, (self.left, self.right))
+        raise ValueError("sim viewer must be one of: plot, console, mujoco, none")
 
     def run(self):
+        if self.xr_client is None:
+            self.xr_client = _make_xr_client(self.xr_config)
         sleep_time = 1.0 / self.xr_config.fps
         logger.info("waiting for first XR frame from %s backend", self.xr_config.backend)
-        first_frame = self.xr_client.get_frame(timeout=10.0)
+        first_frame = self.xr_client.get_frame(timeout=90.0)
         if first_frame is None:
             if self.xr_config.backend.lower() == "udp":
                 raise TimeoutError(
                     "No XR frame received. Start the PICO/Unity streamer and check UDP target IP/port."
                 )
             raise TimeoutError(
-                "No XR frame received. Start the XRoboToolkit PICO app, connect it to PC Service, "
-                "and check xrobotoolkit_sdk installation."
+                "No valid XR frame received after 90 seconds. XRoboToolkit returned zero or invalid "
+                "controller poses. Restart the XRoboToolkit PICO app / PC Service if this persists."
             )
 
         self.left.reset_reference(first_frame)
         self.right.reset_reference(first_frame)
+        if self.sim_config is not None and self.sim_viewer is None:
+            self.sim_viewer = self._make_sim_viewer(self.sim_config)
         logger.info("teleop loop started")
 
         while True:
@@ -399,12 +451,12 @@ class PicoDualArmTeleop:
                 break
 
             if self._button_rising(frame, self.xr_config.recalibrate_button, "_last_recalibrate_pressed"):
-                self.left.reset_reference(frame)
-                self.right.reset_reference(frame)
+                self.left.reset_reference(frame, use_current_robot_pose=False, reset_robot_to_base=True)
+                self.right.reset_reference(frame, use_current_robot_pose=False, reset_robot_to_base=True)
 
             for arm in (self.left, self.right):
                 if not arm.enabled(frame, self.xr_config):
-                    arm.clear_reference()
+                    arm.pause_output()
                     continue
                 if arm.begin_controller_robot_matrix is None:
                     arm.reset_reference(frame)
@@ -445,11 +497,17 @@ def main():
     parser.add_argument("--sim", action="store_true", help="run without connecting to real xArm")
     parser.add_argument(
         "--sim-viewer",
-        choices=["plot", "console", "none"],
+        choices=["plot", "console", "mujoco", "none"],
         default="plot",
         help="simulation output mode",
     )
     parser.add_argument("--sim-print-hz", type=float, default=5.0, help="console sim print rate")
+    parser.add_argument(
+        "--sim-mujoco-arm",
+        choices=["left", "right", "both"],
+        default="both",
+        help="MuJoCo camera/focus hint; both xArm models are displayed",
+    )
     args = parser.parse_args()
 
     config = _load_config(args.config)
@@ -472,7 +530,13 @@ def main():
         left_robot_config,
         right_teleop_config,
         right_robot_config,
-        sim_config=SimConfig(viewer=args.sim_viewer, print_hz=args.sim_print_hz) if args.sim else None,
+        sim_config=SimConfig(
+            viewer=args.sim_viewer,
+            print_hz=args.sim_print_hz,
+            mujoco_arm=args.sim_mujoco_arm,
+        )
+        if args.sim
+        else None,
     )
 
     try:
@@ -481,6 +545,8 @@ def main():
         input("Enter to control robot with PICO teleop >>> ")
         print("\n********** Teleop Control Loop Start **********")
         teleop.run()
+    except KeyboardInterrupt:
+        print("\nStopped.")
     finally:
         teleop.shutdown()
 

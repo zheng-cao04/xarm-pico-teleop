@@ -151,11 +151,55 @@ python uf_robot_umi_teleop_dual.py --config config/xarm6_umi_teleop_dual.yaml
 
 ### PICO / OpenXR Dual-Arm Teleoperation
 
-Quick start:
+Quick start with XRoboToolkit simulation:
 
 ```bash
 cd ufactory_teleop/pico_teleop
-python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_dual.yaml --sim --sim-viewer console
+pip install -r requirements-sim.txt
+
+# 1. Confirm the PICO/XRoboToolkit stream first.
+python inspect_xrobotoolkit_stream.py --hz 5
+
+# 2. Run the full teleoperation workflow without connecting real xArm robots.
+python uf_robot_pico_teleop_dual.py \
+  --config config/xarm7_xrobotoolkit_teleop_dual.yaml \
+  --sim \
+  --sim-viewer console \
+  --sim-print-hz 5
+
+# 3. Optional: use MuJoCo to see the xArm7 model and live target frames.
+python uf_robot_pico_teleop_dual.py \
+  --config config/xarm7_xrobotoolkit_teleop_dual.yaml \
+  --sim \
+  --sim-viewer mujoco \
+  --sim-mujoco-arm both
+```
+
+Expected stream-check output:
+
+- `ts` is nonzero and increasing.
+- `robot_xyz_m` is finite, not `nan`.
+- Left/right `grip`, `trigger`, and buttons change when operated.
+
+Simulation workflow:
+
+1. Start XRoboToolkit PC Service and connect the PICO XRoboToolkit app.
+2. Run `inspect_xrobotoolkit_stream.py --hz 5` and stop it before running teleop.
+3. Run the sim command above.
+4. Hold both controllers in a stable neutral start pose, then press Enter.
+5. Squeeze a controller side grip to enable that arm. The console should change from `target=inactive` to `target=[...]`.
+6. Move each controller slowly and verify the target TCP position changes smoothly.
+7. Pull each trigger and verify `gripper=` changes from `0.00` toward `1.00`.
+8. Press right-controller `A` to recalibrate the controller reference pose. This resets the mapping to the configured default `robot_base_pose`, not the arm's current TCP pose; in sim, the fake robot state is reset to that default pose. The example default pose is `[350, 0, 250, 3.141593, 0, -1.570796]`, which points the TCP/tool Z axis vertically down toward the ground.
+9. Press right-controller `B` to stop cleanly.
+
+`--sim-viewer mujoco` loads the MuJoCo Menagerie xArm7 model through `robot_descriptions`. The first run may download and cache the model assets. The viewer displays two xArm7 models, one for the left target and one for the right target, with a small visual Y offset so they do not overlap. Both models follow their live target TCP position and orientation using pose IK. `--sim-mujoco-arm left|right|both` is kept as a camera/focus hint; it does not hide the other arm.
+
+Direction check: the XRoboToolkit backend converts OpenXR poses to `x=front, y=left, z=up`, matching the SteamVR/OpenXR convention used in Genesis-Humanoid. PICO teleop then maps controller translation as a world-frame delta by default (`position_delta_frame: "world"`), so controller `+x/+y/+z` should move the target TCP in robot `+x/+y/+z`. Wrist rotation remains a relative orientation delta from the calibrated pose. Releasing grip pauses motion commands but keeps the calibrated reference; press right-controller `A` whenever you want to reset the reference.
+
+After the simulated workflow is validated, run real robot mode:
+
+```bash
 python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_dual.yaml
 ```
 

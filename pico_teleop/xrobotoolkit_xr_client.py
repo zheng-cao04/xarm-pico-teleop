@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import threading
 import time
 from typing import Any
 
@@ -45,67 +44,65 @@ class XRoboToolkitXRClient:
 
         self.xrt = xrt
         self.poll_hz = max(int(poll_hz), 1)
-        self._lock = threading.Lock()
-        self._has_frame = threading.Event()
         self._latest_frame = None
-        self._stop = threading.Event()
         self._frame_id = 0
         self._last_timestamp_ns = None
+        self._last_read_timestamp_ns = None
+        self._last_invalid_log = 0.0
 
         self.xrt.init()
-        self._thread = threading.Thread(target=self._poll_loop, daemon=True)
-        self._thread.start()
         logger.info("XRoboToolkit SDK initialized")
 
     def shutdown(self):
-        self._stop.set()
-        if self._thread.is_alive():
-            self._thread.join(timeout=1.0)
         try:
             self.xrt.close()
         except Exception as exc:
             logger.warning("XRoboToolkit SDK close failed: %s", exc)
 
     def get_frame(self, timeout=None):
-        if not self._has_frame.wait(timeout=timeout):
-            return None
-        with self._lock:
-            return copy.deepcopy(self._latest_frame)
-
-    def _poll_loop(self):
-        period = 1.0 / self.poll_hz
+        deadline = None if timeout is None else time.time() + timeout
         last_error_log = 0.0
-        while not self._stop.is_set():
+
+        while True:
+            # Before the first valid frame, poll gently. XRoboToolkit's SDK brings up
+            # its service stream asynchronously and can stay at zero poses if hammered
+            # immediately after init.
+            period = 1.0 / (self.poll_hz if self._latest_frame is not None else 10.0)
             loop_start = time.time()
             try:
                 frame = self._read_frame()
                 if frame is not None:
-                    with self._lock:
-                        self._latest_frame = frame
-                    self._has_frame.set()
+                    self._latest_frame = frame
+                    return copy.deepcopy(frame)
             except Exception as exc:
                 now = time.time()
                 if now - last_error_log > 2.0:
                     logger.warning("XRoboToolkit read failed: %s", exc)
                     last_error_log = now
 
-            elapsed = time.time() - loop_start
-            if elapsed < period:
-                time.sleep(period - elapsed)
+            if deadline is not None and time.time() >= deadline:
+                return copy.deepcopy(self._latest_frame) if self._latest_frame is not None else None
+
+            sleep_time = period - (time.time() - loop_start)
+            if deadline is not None:
+                sleep_time = min(sleep_time, max(deadline - time.time(), 0.0))
+            time.sleep(max(sleep_time, 0.001))
 
     def _read_frame(self):
         timestamp_ns = int(self._safe_call(self.xrt.get_time_stamp_ns, 0))
+        self._last_read_timestamp_ns = timestamp_ns
         if timestamp_ns != 0 and timestamp_ns == self._last_timestamp_ns:
             return None
 
-        headset_pose = self._pose_array(self._safe_call(self.xrt.get_headset_pose, None))
         left_pose = self._pose_array(self._safe_call(self.xrt.get_left_controller_pose, None))
         right_pose = self._pose_array(self._safe_call(self.xrt.get_right_controller_pose, None))
 
         if not self._valid_pose(left_pose) or not self._valid_pose(right_pose):
+            self._log_invalid_frame(timestamp_ns, left_pose, right_pose)
             return None
 
-        hmd_pos, hmd_quat = self._convert_pose(headset_pose, allow_identity=True)
+        hmd_pos = np.zeros(3, dtype=np.float64)
+        hmd_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         left_pos, left_quat = self._convert_pose(left_pose)
         right_pos, right_quat = self._convert_pose(right_pose)
 
@@ -120,6 +117,26 @@ class XRoboToolkitXRClient:
             link_quat_xyzw=np.stack([hmd_quat, left_quat, right_quat], axis=0),
             button_states=button_states,
             body_imu=np.zeros(3, dtype=np.float64),
+        )
+
+    def _log_invalid_frame(self, timestamp_ns, left_pose, right_pose):
+        now = time.time()
+        if now - self._last_invalid_log < 2.0:
+            return
+        self._last_invalid_log = now
+        left_q_norm = float(np.linalg.norm(left_pose[3:7])) if left_pose.shape == (7,) else 0.0
+        right_q_norm = float(np.linalg.norm(right_pose[3:7])) if right_pose.shape == (7,) else 0.0
+        logger.info(
+            "waiting for valid controller poses: ts=%s "
+            "left_valid=%s left_xyz=%s left_q_norm=%.3f "
+            "right_valid=%s right_xyz=%s right_q_norm=%.3f",
+            timestamp_ns,
+            self._valid_pose(left_pose),
+            np.array2string(left_pose[:3], precision=3),
+            left_q_norm,
+            self._valid_pose(right_pose),
+            np.array2string(right_pose[:3], precision=3),
+            right_q_norm,
         )
 
     def _read_buttons(self, timestamp_ns):

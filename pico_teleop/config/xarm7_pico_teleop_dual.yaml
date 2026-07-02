@@ -24,7 +24,7 @@ L:
     deadman_input: "grip"
     position_scale: 1.0
     controller_to_robot_eef: [0, 0, 0, 0, 0, -1.570796]
-    robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    robot_base_pose: [350, 0, 250, 3.141593, 0, -1.570796]
     use_current_robot_pose_as_base: true
 
 R:
@@ -42,5 +42,5 @@ R:
     deadman_input: "grip"
     position_scale: 1.0
     controller_to_robot_eef: [0, 0, 0, 0, 0, 1.570796]
-    robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    robot_base_pose: [350, 0, 250, 3.141593, 0, -1.570796]
     use_current_robot_pose_as_base: true

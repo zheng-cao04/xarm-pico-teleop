@@ -15,7 +15,7 @@ L:
     robot_acc: 500
     gripper_type: 2
     start_joints: [0, -0.2268928, -0.418879, -3.1415927, 0.942477796, -1.570796]
-    start_tcp_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    start_tcp_pose: [350, 0, 250, 3.141593, 0, -1.570796]
 
   TeleoperatorConfig:
     controller: "left"
@@ -23,8 +23,9 @@ L:
     gripper_input: "trigger"
     deadman_input: "grip"
     position_scale: 1.0
+    position_delta_frame: "world"
     controller_to_robot_eef: [0, 0, 0, 0, 0, -1.570796]
-    robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    robot_base_pose: [350, 0, 250, 3.141593, 0, -1.570796]
     use_current_robot_pose_as_base: true
 
 R:
@@ -34,7 +35,7 @@ R:
     robot_acc: 500
     gripper_type: 2
     start_joints: [0, -0.2268928, -0.418879, -3.1415927, 0.942477796, -1.570796]
-    start_tcp_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    start_tcp_pose: [350, 0, 250, 3.141593, 0, -1.570796]
 
   TeleoperatorConfig:
     controller: "right"
@@ -42,6 +43,7 @@ R:
     gripper_input: "trigger"
     deadman_input: "grip"
     position_scale: 1.0
+    position_delta_frame: "world"
     controller_to_robot_eef: [0, 0, 0, 0, 0, 1.570796]
-    robot_base_pose: [350, 0, 250, -1.570796, 0, -1.570796]
+    robot_base_pose: [350, 0, 250, 3.141593, 0, -1.570796]
     use_current_robot_pose_as_base: true
