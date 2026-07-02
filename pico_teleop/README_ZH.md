@@ -78,13 +78,27 @@ python uf_robot_pico_teleop_dual.py --config config/xarm6_pico_teleop_dual.yaml 
    cd XRoboToolkit-PC-Service-Pybind
    bash setup_ubuntu.sh
    ```
-4. 先跑 sim：
+4. 如果使用 USB-C 线直连 PICO，而不是 Wi-Fi/路由器，在 Ubuntu 上建立 ADB reverse：
+   ```bash
+   adb devices
+   adb reverse --remove-all
+   adb reverse tcp:63901 tcp:63901
+   adb reverse --list
+   ```
+   然后在 PICO 的 XRoboToolkit App 里把 PC Service IP 填为 `127.0.0.1`。
+5. 先检查 XRoboToolkit 原始输入流：
+   ```bash
+   cd ufactory_teleop/pico_teleop
+   python inspect_xrobotoolkit_stream.py --hz 5
+   ```
+   该脚本会同时打印 SDK 原始 OpenXR 位置、转换后的机器人坐标系位置、相对启动时刻的位移、grip/trigger/A/B/X/Y 按键。
+6. 再跑 sim：
    ```bash
    cd ufactory_teleop/pico_teleop
    python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_dual.yaml --sim --sim-viewer console
    ```
 
-`--sim` 默认打开 matplotlib 3D 视图，显示左右目标 TCP、轨迹和末端坐标轴。如果当前环境没有图形界面或没有安装 matplotlib，用 `--sim-viewer console`。
+`--sim` 默认打开 matplotlib 3D 视图，显示左右目标 TCP、轨迹和末端坐标轴。如果当前环境没有图形界面或没有安装 matplotlib，用 `--sim-viewer console`。console 模式会打印每只手柄在机器人坐标系下的位置、grip/trigger 状态、以及生成的目标 TCP 位姿。
 
 确认方向、左右手柄、grip/trigger 和重校准按钮符合预期后，再运行真实机械臂模式：
 

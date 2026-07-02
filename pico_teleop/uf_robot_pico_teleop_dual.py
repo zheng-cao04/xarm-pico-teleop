@@ -151,14 +151,23 @@ class ConsoleSimViewer:
         self._last_print = now
         parts = [f"frame={frame.frame_id}"]
         for arm in arms:
+            ctrl_pos_mm = frame.link_pos[arm.controller_index] * 1000.0
+            ctrl_xyz = ", ".join(f"{v:7.1f}" for v in ctrl_pos_mm)
+            deadman = _button_value(frame.button_states, arm.config.deadman_input, arm.config.controller)
+            trigger = _button_value(frame.button_states, arm.config.gripper_input, arm.config.controller)
+            prefix = (
+                f"{arm.name}: ctrl=[{ctrl_xyz}] "
+                f"{arm.config.deadman_input}={deadman:.2f} "
+                f"{arm.config.gripper_input}={trigger:.2f}"
+            )
             action = arm.robot.last_action
             if action is None:
-                parts.append(f"{arm.name}: inactive")
+                parts.append(f"{prefix} target=inactive")
                 continue
             xyz = ", ".join(f"{v:7.1f}" for v in action[:3])
             aa = ", ".join(f"{v:+.2f}" for v in action[3:6])
             grip = arm.robot.gripper_norm
-            parts.append(f"{arm.name}: xyz=[{xyz}] aa=[{aa}] grip={grip:.2f}")
+            parts.append(f"{prefix} target=[{xyz}] aa=[{aa}] gripper={grip:.2f}")
         print(" | ".join(parts), flush=True)
 
     def close(self):
