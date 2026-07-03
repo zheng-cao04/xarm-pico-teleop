@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -17,6 +16,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "ufactory_devices", "umi", "vive_tracker"))
+from hand_bridge import GripperBridge, GripperBridgeConfig
 from pico_xr_client import PicoXRClient, XRFrame
 from transformations import Transformations
 
@@ -85,14 +85,6 @@ class SimConfig:
     mujoco_arm: str = "both"
 
 
-@dataclass
-class GripperBridgeConfig:
-    driver: str = "none"
-    publish_redis: bool = False
-    redis_url: str = "redis://localhost:6379/0"
-    redis_key: str = "motion:ref:latest"
-
-
 def _normalize_arm_config(raw_config):
     config = dict(raw_config)
     if "tracker_to_robot_eef" in config and "controller_to_robot_eef" not in config:
@@ -133,56 +125,6 @@ def _make_xr_client(config: PicoXRConfig):
 
         return XRoboToolkitXRClient(config.xrobotoolkit_poll_hz)
     raise ValueError("XRConfig.backend must be one of: udp, xrobotoolkit")
-
-
-class GripperBridge:
-    """Optional GSPlayground-compatible gripper side channel."""
-
-    def __init__(self, config: GripperBridgeConfig):
-        self.config = config
-        self._redis = None
-        self._driver = None
-
-        driver = config.driver.lower()
-        if driver == "changingtek":
-            try:
-                from gs_env.real.changingtek.gripper import Gripper
-
-                self._driver = Gripper()
-                logger.info("ChangingTek gripper bridge enabled")
-            except Exception as exc:
-                logger.warning("ChangingTek gripper bridge unavailable: %s", exc)
-        elif driver != "none":
-            raise ValueError("GripperBridge.driver must be one of: none, changingtek")
-
-        if config.publish_redis:
-            try:
-                import redis
-            except ImportError as exc:
-                raise RuntimeError(
-                    "GripperBridge.publish_redis requires redis. Install it with: pip install redis"
-                ) from exc
-            self._redis = redis.from_url(config.redis_url)
-            logger.info("Publishing gripper state to Redis key prefix %s", config.redis_key)
-
-    def update(self, left_action, right_action, left_closure=None, right_closure=None):
-        left_action = _clamp01(left_action)
-        right_action = _clamp01(right_action)
-        if left_closure is None:
-            left_closure = left_action
-        if right_closure is None:
-            right_closure = right_action
-
-        if self._driver is not None:
-            self._driver.set_closure(left_action, right_action)
-            self._driver.update_state()
-            left_closure = float(getattr(self._driver, "closure1", left_closure))
-            right_closure = float(getattr(self._driver, "closure2", right_closure))
-
-        if self._redis is not None:
-            key = self.config.redis_key
-            self._redis.set(f"{key}:gripper:action", json.dumps([left_action, right_action]))
-            self._redis.set(f"{key}:gripper:closure", json.dumps([left_closure, right_closure]))
 
 
 class SimulatedUFRobot:
@@ -609,6 +551,7 @@ class PicoDualArmTeleop:
             self.xr_client.shutdown()
         if self.sim_viewer is not None:
             self.sim_viewer.close()
+        self.gripper_bridge.close()
 
     def _make_sim_viewer(self, sim_config):
         if sim_config.viewer == "none":
@@ -701,6 +644,7 @@ class PicoDualArmTeleop:
             arm.reset_reference(first_frame)
         if self.sim_config is not None and self.sim_viewer is None:
             self.sim_viewer = self._make_sim_viewer(self.sim_config)
+        self.gripper_bridge.start()
         logger.info("teleop loop started for active arm(s): %s", self.active_arm)
 
         while True:
@@ -884,6 +828,34 @@ def main():
         action="store_true",
         help="real xArm mode only: do not move grippers to their configured open pose during initialization",
     )
+    parser.add_argument(
+        "--hand-driver",
+        choices=["none", "wuji_hand", "changingtek"],
+        default=None,
+        help="override GripperBridge.driver for a standalone external hand",
+    )
+    parser.add_argument(
+        "--hand-side",
+        choices=["left", "right", "both"],
+        default=None,
+        help="override GripperBridge.side",
+    )
+    parser.add_argument("--hand-serial-number", type=str, default=None, help="single external hand serial number")
+    parser.add_argument("--hand-left-serial-number", type=str, default=None, help="left external hand serial number")
+    parser.add_argument("--hand-right-serial-number", type=str, default=None, help="right external hand serial number")
+    parser.add_argument(
+        "--hand-close-scale",
+        type=float,
+        default=None,
+        help="override external hand closure range scale in [0, 1]",
+    )
+    parser.add_argument(
+        "--hand-dummy",
+        type=_parse_bool,
+        default=None,
+        metavar="{true,false}",
+        help="run external hand bridge in dummy mode",
+    )
     args = parser.parse_args()
 
     real_motion_modes = [
@@ -900,6 +872,8 @@ def main():
         value = getattr(args, name)
         if value is not None and value <= 0:
             parser.error(f"--{name.replace('_', '-')} must be positive")
+    if args.hand_close_scale is not None and not 0.0 <= args.hand_close_scale <= 1.0:
+        parser.error("--hand-close-scale must be in [0, 1]")
 
     config = _load_config(args.config)
     xr_config = PicoXRConfig(**config.get("XRConfig", {}))
@@ -939,6 +913,20 @@ def main():
         **_normalize_arm_config(right_config_raw["TeleoperatorConfig"])
     )
     gripper_bridge_config = GripperBridgeConfig(**config.get("GripperBridge", {}))
+    if args.hand_driver is not None:
+        gripper_bridge_config.driver = args.hand_driver
+    if args.hand_side is not None:
+        gripper_bridge_config.side = args.hand_side
+    if args.hand_serial_number is not None:
+        gripper_bridge_config.serial_number = args.hand_serial_number
+    if args.hand_left_serial_number is not None:
+        gripper_bridge_config.left_serial_number = args.hand_left_serial_number
+    if args.hand_right_serial_number is not None:
+        gripper_bridge_config.right_serial_number = args.hand_right_serial_number
+    if args.hand_close_scale is not None:
+        gripper_bridge_config.close_scale = args.hand_close_scale
+    if args.hand_dummy is not None:
+        gripper_bridge_config.is_dummy = args.hand_dummy
 
     teleop = PicoDualArmTeleop(
         xr_config,
@@ -984,6 +972,12 @@ def main():
             print(
                 "Initial joint override: "
                 f"speed={left_robot_config.start_joint_speed}, acc={left_robot_config.start_joint_acc}"
+            )
+        if gripper_bridge_config.driver != "none":
+            print(
+                "External hand bridge: "
+                f"driver={gripper_bridge_config.driver}, side={gripper_bridge_config.side}, "
+                f"close_scale={gripper_bridge_config.close_scale}"
             )
         input("Enter to control robot with PICO teleop >>> ")
         print("\n********** Teleop Control Loop Start **********")

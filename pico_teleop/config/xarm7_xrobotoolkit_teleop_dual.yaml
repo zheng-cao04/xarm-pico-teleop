@@ -10,7 +10,16 @@ XRConfig:
   max_frame_age_s: 0.25
 
 GripperBridge:
-  driver: "none"  # none or changingtek
+  driver: "none"  # none, wuji_hand, or changingtek
+  side: "right"  # physical external hand channel: left, right, or both
+  serial_number: null  # used when side is left or right
+  left_serial_number: null
+  right_serial_number: null
+  is_dummy: false
+  ema_alpha: 0.4
+  close_scale: 0.35  # conservative first real-hand closure range
+  command_deadband: 0.005
+  min_send_interval_s: 0.02
   publish_redis: false
   redis_url: "redis://localhost:6379/0"
   redis_key: "motion:ref:latest"
@@ -31,7 +40,7 @@ L:
 
   TeleoperatorConfig:
     controller: "left"
-    use_gripper: false
+    use_gripper: true
     gripper_input: "trigger"
     deadman_input: "grip"
     position_scale: 1.0
@@ -57,7 +66,7 @@ R:
 
   TeleoperatorConfig:
     controller: "right"
-    use_gripper: false
+    use_gripper: true
     gripper_input: "trigger"
     deadman_input: "grip"
     position_scale: 1.0

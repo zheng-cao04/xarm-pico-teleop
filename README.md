@@ -199,11 +199,45 @@ Simulation workflow:
 
 Direction check: the XRoboToolkit backend converts OpenXR poses to `x=front, y=left, z=up`, matching the SteamVR/OpenXR convention used in Genesis-Humanoid. The active xArm7 config uses `position_delta_frame: "head_yaw"`: when a reference is reset, the current headset yaw becomes the operator-centered forward direction. After that, pushing a controller forward relative to the direction you were facing at calibration moves the target TCP in robot `+x`; controller left maps to robot `+y`; controller up maps to robot `+z`. Wrist rotation remains a relative orientation delta from the calibrated controller pose. Grip acts as both deadman and clutch: releasing grip pauses motion commands, and the next grip press re-anchors that arm to the current controller pose, current headset yaw, and current TCP pose so inactive controller motion does not create a jump. Press right-controller `A` only when you intentionally want to move the selected arm(s) to the configured base pose and recalibrate.
 
-Optional GSPlayground-compatible gripper side channel:
+Optional standalone hand/gripper side channel:
 
 - `GripperBridge.publish_redis: true` publishes `{redis_key}:gripper:action` and `{redis_key}:gripper:closure`.
-- `GripperBridge.driver: "changingtek"` also tries to drive `gs_env.real.changingtek.gripper.Gripper` with left/right trigger closures.
-- Both are off by default, so the normal xArm gripper path has no Redis or GSPlayground dependency.
+- `GripperBridge.driver: "wuji_hand"` drives a WujiHand as a robot-body-independent hand, matching the separate hand component pattern used by Genesis-Humanoid / GenesisPlayground.
+- `GripperBridge.driver: "changingtek"` keeps the older dynamic import path for `gs_env.real.changingtek.gripper.Gripper`.
+- `GripperBridge.side: "left"|"right"|"both"` chooses which trigger channel drives a physical hand. The active xArm7 config keeps the xArm SDK gripper disabled with `gripper_type: 0`, but sets `use_gripper: true` so trigger values still feed this bridge.
+- The real driver is off by default. For first WujiHand tests, keep `close_scale` small, for example `0.35`.
+
+Bring up a standalone hand before combining it with real arm motion:
+
+```bash
+cd pico_teleop
+python check_hand_connection.py \
+  --driver wuji_hand \
+  --side right \
+  --serial-number <hand-serial>
+
+python check_hand_connection.py \
+  --driver wuji_hand \
+  --side right \
+  --serial-number <hand-serial> \
+  --close-scale 0.2 \
+  --command-closure 0.25
+```
+
+After the no-motion check succeeds, either set `GripperBridge.driver: "wuji_hand"` and the matching serial number in the teleop config, or leave the YAML safe with `driver: "none"` and pass hand overrides to teleop:
+
+```bash
+python uf_robot_pico_teleop_dual.py \
+  --config config/xarm7_xrobotoolkit_teleop_dual.yaml \
+  --sim false \
+  --arm right \
+  --no-start-move \
+  --no-gripper-init \
+  --hand-driver wuji_hand \
+  --hand-side right \
+  --hand-serial-number <hand-serial> \
+  --hand-close-scale 0.35
+```
 
 After the simulated workflow is validated, bring up the real xArms in stages. First edit
 `pico_teleop/config/xarm7_xrobotoolkit_teleop_dual.yaml` so `L.RobotConfig.robot_ip`

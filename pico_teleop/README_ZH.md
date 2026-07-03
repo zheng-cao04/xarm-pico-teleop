@@ -206,8 +206,10 @@ python uf_robot_pico_teleop_dual.py \
 - `action_scale`：最终机器人平移目标的缩放系数，围绕校准时的机器人基准位姿缩放。比如 `action_scale: 0.2` 表示手柄移动 50 mm 时，机器人 TCP 大约只移动 10 mm。首次真机测试建议保持较小值，确认方向后再逐步调大。
 - `position_delta_frame`：手柄平移增量的解释方式。`head_yaw` 表示每次建立参考时记录头显 yaw，并把“当时头朝向的前方”作为机器人 `+x`，左方作为机器人 `+y`，上方作为机器人 `+z`；这是当前 xArm7 配置的默认值。`world` 表示按机器人世界坐标系 `x=front, y=left, z=up` 直接叠加；`controller` 表示旧逻辑，平移会跟随校准时手柄局部坐标轴。
 - `use_current_robot_pose_as_base`：为 `true` 时，启动/自动建立参考时使用机器人当前 TCP 位姿作为基准；右手柄 `A` 的显式重校准会覆盖为配置里的默认 `robot_base_pose`。
-- `GripperBridge.publish_redis`：可选打开 GSPlayground 兼容 Redis 字段，发布 `{redis_key}:gripper:action` 和 `{redis_key}:gripper:closure`。
-- `GripperBridge.driver`：默认 `none`；设为 `changingtek` 时会尝试调用 `gs_env.real.changingtek.gripper.Gripper`，用左右 trigger 直接驱动 ChangingTek 夹爪。
+- `GripperBridge.publish_redis`：可选打开兼容 Redis 字段，发布 `{redis_key}:gripper:action`、`{redis_key}:gripper:closure` 和 `{redis_key}:hand:closure`。
+- `GripperBridge.driver`：默认 `none`；设为 `wuji_hand` 时会直接驱动独立的 WujiHand，和 Genesis-Humanoid / GenesisPlayground 里“机器人本体”和“手”分离的模式一致；设为 `changingtek` 时保留旧的 `gs_env.real.changingtek.gripper.Gripper` 动态导入路径。
+- `GripperBridge.side`：`left` / `right` / `both`，决定哪一路 PICO trigger 控制真实外置手。当前 xArm7 配置保持 `RobotConfig.gripper_type: 0`，不会用 xArm SDK 控制内置夹爪；但 `TeleoperatorConfig.use_gripper: true`，所以 trigger 仍会送到外置手 bridge。
+- `GripperBridge.close_scale`：外置手闭合行程缩放。首次真手测试建议保持较小值，例如 `0.2` 到 `0.35`。
 - `--sim-viewer`：`mujoco` 显示两个 xArm7 模型并分别用 pose IK 跟随左右目标 TCP 的位置和姿态，`plot` 显示 3D 目标 TCP，`console` 打印目标 pose，`none` 只运行映射逻辑。
 - `--arm`：`left` / `right` / `both`，选择实际连接和控制哪只机械臂；单臂真机首测建议 `--arm left` 或 `--arm right`。
 - `--no-start-move`：真实机械臂模式下只连接和初始化，不移动到 `start_joints` / `start_tcp_pose`，适合第一次连真机。
@@ -218,6 +220,37 @@ python uf_robot_pico_teleop_dual.py \
 - `--reset-speed` / `--reset-acc`：命令行覆盖 `RobotConfig.reset_speed` / `reset_acc`，方便现场测试柔和程度。
 - `--start-joint-speed` / `--start-joint-acc`：命令行覆盖 `RobotConfig.start_joint_speed` / `start_joint_acc`，方便现场测试 xArm Studio 初始位姿移动的柔和程度。
 - `--no-gripper-init`：真实机械臂模式下不在启动时打开/初始化夹爪。
+
+外置手先单独做无动作连接检查：
+
+```bash
+python check_hand_connection.py \
+  --driver wuji_hand \
+  --side right \
+  --serial-number <hand-serial>
+
+python check_hand_connection.py \
+  --driver wuji_hand \
+  --side right \
+  --serial-number <hand-serial> \
+  --close-scale 0.2 \
+  --command-closure 0.25
+```
+
+无动作检查通过后，可以继续让 YAML 保持 `GripperBridge.driver: "none"`，在 teleop 命令行里临时启用真实手：
+
+```bash
+python uf_robot_pico_teleop_dual.py \
+  --config config/xarm7_xrobotoolkit_teleop_dual.yaml \
+  --sim false \
+  --arm right \
+  --no-start-move \
+  --no-gripper-init \
+  --hand-driver wuji_hand \
+  --hand-side right \
+  --hand-serial-number <hand-serial> \
+  --hand-close-scale 0.35
+```
 
 ## 安全注意
 

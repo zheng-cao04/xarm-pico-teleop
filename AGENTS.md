@@ -37,8 +37,23 @@ Expected stream health:
 - Wrist rotation remains a relative orientation delta from the calibrated controller pose.
 - Grip is both deadman and clutch. Releasing grip pauses output; the next grip press re-anchors that arm to the current controller pose, current HMD yaw, and current TCP pose before sending motion, so inactive controller motion cannot accumulate into a jump.
 - Trigger controls the gripper value independently of the grip deadman; releasing grip pauses TCP motion commands only.
+- The active xArm7 config treats an external hand as independent from the xArm body: `RobotConfig.gripper_type: 0` disables xArm SDK gripper control, while `TeleoperatorConfig.use_gripper: true` keeps PICO trigger values available to `GripperBridge`.
 - Right-controller `A` recalibrates both arms and resets simulation robot state to the configured `robot_base_pose`, not the current TCP.
 - Right-controller `B` is the default software stop. With `stop_robot_on_stop_button: true`, real mode calls xArm SDK `emergency_stop()` on selected arm(s), clears references, and exits the teleop loop. It is not a replacement for the physical E-stop.
+
+## Standalone Hand Bring-Up
+
+Keep the hand/gripper bridge robot-body-independent so the same hand can be mounted on xArm or Unitree G1 style bodies. Use the no-motion hand checker before combining hand control with real arm motion:
+
+```bash
+cd pico_teleop
+python check_hand_connection.py --driver wuji_hand --side right --serial-number <hand-serial>
+python check_hand_connection.py --driver wuji_hand --side right --serial-number <hand-serial> --close-scale 0.2 --command-closure 0.25
+```
+
+`GripperBridge.driver` supports `none`, `wuji_hand`, and the older dynamic `changingtek` import path. `GripperBridge.side` selects which trigger channel drives the physical hand. Keep `close_scale` conservative for first real-hand tests.
+
+Teleop can enable a real hand without editing the safe default YAML via `--hand-driver wuji_hand --hand-side <left|right> --hand-serial-number <serial> --hand-close-scale 0.35`.
 
 ## Real xArm Bring-Up
 
