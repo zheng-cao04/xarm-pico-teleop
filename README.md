@@ -189,13 +189,19 @@ Simulation workflow:
 4. Hold both controllers in a stable neutral start pose, then press Enter.
 5. Squeeze a controller side grip to enable that arm. The console should change from `target=inactive` to `target=[...]`.
 6. Move each controller slowly and verify the target TCP position changes smoothly.
-7. Pull each trigger and verify `gripper=` changes from `0.00` toward `1.00`.
+7. Pull each trigger and verify `gripper=` changes from `0.00` toward `1.00`. The trigger-to-gripper path stays active even when the grip deadman is released; releasing grip only pauses TCP motion commands.
 8. Press right-controller `A` to recalibrate the controller reference pose. This resets the mapping to the configured default `robot_base_pose`, not the arm's current TCP pose; in sim, the fake robot state is reset to that default pose. The example default pose is `[350, 0, 250, 3.141593, 0, -1.570796]`, which points the TCP/tool Z axis vertically down toward the ground.
 9. Press right-controller `B` to stop cleanly.
 
 `--sim-viewer mujoco` loads the MuJoCo Menagerie xArm7 model through `robot_descriptions`. The first run may download and cache the model assets. The viewer displays two xArm7 models, one for the left target and one for the right target, with a small visual Y offset so they do not overlap. Both models follow their live target TCP position and orientation using pose IK. `--sim-mujoco-arm left|right|both` is kept as a camera/focus hint; it does not hide the other arm.
 
 Direction check: the XRoboToolkit backend converts OpenXR poses to `x=front, y=left, z=up`, matching the SteamVR/OpenXR convention used in Genesis-Humanoid. PICO teleop then maps controller translation as a world-frame delta by default (`position_delta_frame: "world"`), so controller `+x/+y/+z` should move the target TCP in robot `+x/+y/+z`. Wrist rotation remains a relative orientation delta from the calibrated pose. Releasing grip pauses motion commands but keeps the calibrated reference; press right-controller `A` whenever you want to reset the reference.
+
+Optional GSPlayground-compatible gripper side channel:
+
+- `GripperBridge.publish_redis: true` publishes `{redis_key}:gripper:action` and `{redis_key}:gripper:closure`.
+- `GripperBridge.driver: "changingtek"` also tries to drive `gs_env.real.changingtek.gripper.Gripper` with left/right trigger closures.
+- Both are off by default, so the normal xArm gripper path has no Redis or GSPlayground dependency.
 
 After the simulated workflow is validated, run real robot mode:
 

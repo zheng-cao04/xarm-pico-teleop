@@ -35,7 +35,7 @@ Expected stream health:
 - Controller translation is mapped as world-frame delta by default with `position_delta_frame: "world"`.
 - Wrist rotation remains a relative orientation delta from the calibrated controller pose.
 - Grip is the deadman input. Releasing grip pauses output but keeps the calibration reference.
-- Trigger controls the gripper value.
+- Trigger controls the gripper value independently of the grip deadman; releasing grip pauses TCP motion commands only.
 - Right-controller `A` recalibrates both arms and resets simulation robot state to the configured `robot_base_pose`, not the current TCP.
 - Right-controller `B` stops the teleop loop.
 

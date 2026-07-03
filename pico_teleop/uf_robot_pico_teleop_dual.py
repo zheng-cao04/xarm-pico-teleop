@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -76,11 +77,23 @@ class SimConfig:
     mujoco_arm: str = "both"
 
 
+@dataclass
+class GripperBridgeConfig:
+    driver: str = "none"
+    publish_redis: bool = False
+    redis_url: str = "redis://localhost:6379/0"
+    redis_key: str = "motion:ref:latest"
+
+
 def _normalize_arm_config(raw_config):
     config = dict(raw_config)
     if "tracker_to_robot_eef" in config and "controller_to_robot_eef" not in config:
         config["controller_to_robot_eef"] = config.pop("tracker_to_robot_eef")
     return config
+
+
+def _clamp01(value):
+    return min(max(float(value), 0.0), 1.0)
 
 
 def _button_value(button_states, name, controller):
@@ -112,6 +125,56 @@ def _make_xr_client(config: PicoXRConfig):
 
         return XRoboToolkitXRClient(config.xrobotoolkit_poll_hz)
     raise ValueError("XRConfig.backend must be one of: udp, xrobotoolkit")
+
+
+class GripperBridge:
+    """Optional GSPlayground-compatible gripper side channel."""
+
+    def __init__(self, config: GripperBridgeConfig):
+        self.config = config
+        self._redis = None
+        self._driver = None
+
+        driver = config.driver.lower()
+        if driver == "changingtek":
+            try:
+                from gs_env.real.changingtek.gripper import Gripper
+
+                self._driver = Gripper()
+                logger.info("ChangingTek gripper bridge enabled")
+            except Exception as exc:
+                logger.warning("ChangingTek gripper bridge unavailable: %s", exc)
+        elif driver != "none":
+            raise ValueError("GripperBridge.driver must be one of: none, changingtek")
+
+        if config.publish_redis:
+            try:
+                import redis
+            except ImportError as exc:
+                raise RuntimeError(
+                    "GripperBridge.publish_redis requires redis. Install it with: pip install redis"
+                ) from exc
+            self._redis = redis.from_url(config.redis_url)
+            logger.info("Publishing gripper state to Redis key prefix %s", config.redis_key)
+
+    def update(self, left_action, right_action, left_closure=None, right_closure=None):
+        left_action = _clamp01(left_action)
+        right_action = _clamp01(right_action)
+        if left_closure is None:
+            left_closure = left_action
+        if right_closure is None:
+            right_closure = right_action
+
+        if self._driver is not None:
+            self._driver.set_closure(left_action, right_action)
+            self._driver.update_state()
+            left_closure = float(getattr(self._driver, "closure1", left_closure))
+            right_closure = float(getattr(self._driver, "closure2", right_closure))
+
+        if self._redis is not None:
+            key = self.config.redis_key
+            self._redis.set(f"{key}:gripper:action", json.dumps([left_action, right_action]))
+            self._redis.set(f"{key}:gripper:closure", json.dumps([left_closure, right_closure]))
 
 
 class SimulatedUFRobot:
@@ -148,7 +211,13 @@ class SimulatedUFRobot:
             Transformations.xyzrxryrz_to_rotation_matrix(*self.pose_aa)
         )
         if len(action) > 6:
-            self.gripper_norm = float(action[6])
+            self.gripper_norm = _clamp01(action[6])
+        return 0
+
+    def send_gripper(self, gripper_norm):
+        self.gripper_norm = _clamp01(gripper_norm)
+        if self.last_action is not None and len(self.last_action) > 6:
+            self.last_action[6] = self.gripper_norm
         return 0
 
 
@@ -176,7 +245,8 @@ class ConsoleSimViewer:
             )
             action = arm.robot.last_action
             if action is None:
-                parts.append(f"{prefix} target=inactive")
+                grip = getattr(arm.robot, "gripper_norm", 0.0)
+                parts.append(f"{prefix} target=inactive gripper={grip:.2f}")
                 continue
             xyz = ", ".join(f"{v:7.1f}" for v in action[:3])
             aa = ", ".join(f"{v:+.2f}" for v in action[3:6])
@@ -338,16 +408,32 @@ class PicoArmTeleop:
             pos_delta = self._controller_pos_mm(frame) - self.begin_controller_pos_mm
             action[:3] = (base_pos + pos_delta).tolist()
         if self.config.use_gripper:
-            gripper_norm = _button_value(
-                frame.button_states,
-                self.config.gripper_input,
-                self.config.controller,
-            )
-            action.append(min(max(gripper_norm, 0.0), 1.0))
+            action.append(self.gripper_norm_from_frame(frame))
         return action
 
     def send_action(self, action):
         return self.robot.send_action(action)
+
+    def gripper_norm_from_frame(self, frame: XRFrame):
+        if not self.config.use_gripper:
+            return 0.0
+        return _clamp01(
+            _button_value(
+                frame.button_states,
+                self.config.gripper_input,
+                self.config.controller,
+            )
+        )
+
+    def send_gripper(self, gripper_norm):
+        if not self.config.use_gripper:
+            return 0
+        if hasattr(self.robot, "send_gripper"):
+            return self.robot.send_gripper(gripper_norm)
+        return 0
+
+    def current_gripper_norm(self):
+        return _clamp01(getattr(self.robot, "gripper_norm", 0.0))
 
     def _controller_robot_matrix(self, frame: XRFrame):
         x, y, z = self._controller_pos_mm(frame).tolist()
@@ -374,6 +460,7 @@ class PicoDualArmTeleop:
         right_config: PicoArmTeleopConfig,
         right_robot_config: RobotConfig,
         sim_config: SimConfig | None = None,
+        gripper_bridge_config: GripperBridgeConfig | None = None,
     ):
         self.xr_config = xr_config
         self.xr_client = None
@@ -383,6 +470,7 @@ class PicoDualArmTeleop:
         self.right = PicoArmTeleop("R", right_config, right_robot_config, robot=right_robot)
         self.sim_config = sim_config
         self.sim_viewer = None
+        self.gripper_bridge = GripperBridge(gripper_bridge_config or GripperBridgeConfig())
         self._last_recalibrate_pressed = False
         self._last_stop_pressed = False
 
@@ -454,9 +542,18 @@ class PicoDualArmTeleop:
                 self.left.reset_reference(frame, use_current_robot_pose=False, reset_robot_to_base=True)
                 self.right.reset_reference(frame, use_current_robot_pose=False, reset_robot_to_base=True)
 
+            gripper_actions = {
+                self.left.name: self.left.gripper_norm_from_frame(frame),
+                self.right.name: self.right.gripper_norm_from_frame(frame),
+            }
+
             for arm in (self.left, self.right):
                 if not arm.enabled(frame, self.xr_config):
                     arm.pause_output()
+                    code = arm.send_gripper(gripper_actions[arm.name])
+                    if code != 0:
+                        logger.error("%s gripper command failed with code %s", arm.name, code)
+                        return
                     continue
                 if arm.begin_controller_robot_matrix is None:
                     arm.reset_reference(frame)
@@ -465,6 +562,13 @@ class PicoDualArmTeleop:
                 if code != 0:
                     logger.error("%s robot command failed with code %s", arm.name, code)
                     return
+
+            self.gripper_bridge.update(
+                gripper_actions[self.left.name],
+                gripper_actions[self.right.name],
+                self.left.current_gripper_norm(),
+                self.right.current_gripper_norm(),
+            )
 
             if self.sim_viewer is not None:
                 self.sim_viewer.update(frame, (self.left, self.right))
@@ -523,6 +627,7 @@ def main():
     right_teleop_config = PicoArmTeleopConfig(
         **_normalize_arm_config(right_config_raw["TeleoperatorConfig"])
     )
+    gripper_bridge_config = GripperBridgeConfig(**config.get("GripperBridge", {}))
 
     teleop = PicoDualArmTeleop(
         xr_config,
@@ -530,6 +635,7 @@ def main():
         left_robot_config,
         right_teleop_config,
         right_robot_config,
+        gripper_bridge_config=gripper_bridge_config,
         sim_config=SimConfig(
             viewer=args.sim_viewer,
             print_hz=args.sim_print_hz,

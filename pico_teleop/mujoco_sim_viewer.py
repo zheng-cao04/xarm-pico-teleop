@@ -209,11 +209,12 @@ class MujocoSimViewer:
                 self._handle_reset(arm)
                 action = arm.robot.last_action
                 if action is None:
+                    self._apply_gripper_control(arm.name, arm.robot.gripper_norm)
                     continue
                 target_pos = self._action_pos_m(arm.name, action)
                 target_rot = Transformations.rxryrz_to_rotation_matrix(*action[3:6])
                 self._solve_pose_ik(arm.name, target_pos, target_rot)
-                self._apply_controls(arm.name, action)
+                self._apply_controls(arm.name, action, arm.robot.gripper_norm)
             self.mujoco.mj_forward(self.model, self.data)
             self._draw_targets(arms)
 
@@ -225,7 +226,7 @@ class MujocoSimViewer:
             return
         self._reset_counters[arm.name] = reset_count
         self._move_to_robot_pose(arm, iterations=80)
-        self._apply_controls(arm.name, list(arm.robot.pose_aa) + [arm.robot.gripper_norm])
+        self._apply_controls(arm.name, list(arm.robot.pose_aa), arm.robot.gripper_norm)
 
     def _move_to_robot_pose(self, arm, iterations):
         state = self._arm_state[arm.name]
@@ -280,11 +281,17 @@ class MujocoSimViewer:
             low, high = self.model.jnt_range[joint_id]
             self.data.qpos[qpos_id] = np.clip(self.data.qpos[qpos_id], low, high)
 
-    def _apply_controls(self, arm_name, action):
+    def _apply_controls(self, arm_name, action, gripper_norm=None):
         state = self._arm_state[arm_name]
         self.data.ctrl[state["actuator_ids"]] = self.data.qpos[state["qpos_ids"]]
-        if len(action) > 6:
-            self.data.ctrl[state["gripper_actuator_id"]] = float(np.clip(action[6], 0.0, 1.0)) * 255.0
+        if gripper_norm is None and len(action) > 6:
+            gripper_norm = action[6]
+        if gripper_norm is not None:
+            self._apply_gripper_control(arm_name, gripper_norm)
+
+    def _apply_gripper_control(self, arm_name, gripper_norm):
+        state = self._arm_state[arm_name]
+        self.data.ctrl[state["gripper_actuator_id"]] = float(np.clip(gripper_norm, 0.0, 1.0)) * 255.0
 
     def _draw_targets(self, arms):
         scene = self.viewer.user_scn

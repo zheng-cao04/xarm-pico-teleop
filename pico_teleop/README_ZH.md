@@ -112,8 +112,8 @@ python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_du
 1. 真实机械臂模式会连接并初始化两台 xArm，机械臂会移动到 `start_joints` / `start_tcp_pose`；`--sim` 模式不会连接 xArm。
 2. PICO 输入 backend 开始提供 XR 数据。
 3. 终端按 Enter 后进入控制循环。
-4. 默认按住左右手柄 `grip` 才控制对应机械臂，松开会暂停输出，但保留该臂手柄零点。
-5. 默认 `trigger` 控制对应夹爪，`0` 为打开，`1` 为闭合。
+4. 默认按住左右手柄 `grip` 才控制对应机械臂，松开会暂停 TCP 运动输出，但保留该臂手柄零点。
+5. 默认 `trigger` 控制对应夹爪，`0` 为打开，`1` 为闭合；这条夹爪通道和运动 deadman 解耦，松开 `grip` 时仍会响应 trigger。
 6. 默认按右手柄 `A` 重新校准左右手柄零点，并把映射基准重置到配置里的默认 `robot_base_pose`，而不是当前 TCP；示例默认位姿为 `[350, 0, 250, 3.141593, 0, -1.570796]`，TCP/tool 的 Z 轴竖直向下；按右手柄 `B` 停止脚本。
 
 ## 配置重点
@@ -129,6 +129,8 @@ python uf_robot_pico_teleop_dual.py --config config/xarm7_xrobotoolkit_teleop_du
 - `position_scale`：手柄平移缩放系数。
 - `position_delta_frame`：手柄平移增量的解释方式。`world` 表示按机器人世界坐标系 `x=front, y=left, z=up` 直接叠加，方向最直观；`controller` 表示旧逻辑，平移会跟随校准时手柄局部坐标轴。
 - `use_current_robot_pose_as_base`：为 `true` 时，启动/自动建立参考时使用机器人当前 TCP 位姿作为基准；右手柄 `A` 的显式重校准会覆盖为配置里的默认 `robot_base_pose`。
+- `GripperBridge.publish_redis`：可选打开 GSPlayground 兼容 Redis 字段，发布 `{redis_key}:gripper:action` 和 `{redis_key}:gripper:closure`。
+- `GripperBridge.driver`：默认 `none`；设为 `changingtek` 时会尝试调用 `gs_env.real.changingtek.gripper.Gripper`，用左右 trigger 直接驱动 ChangingTek 夹爪。
 - `--sim-viewer`：`mujoco` 显示两个 xArm7 模型并分别用 pose IK 跟随左右目标 TCP 的位置和姿态，`plot` 显示 3D 目标 TCP，`console` 打印目标 pose，`none` 只运行映射逻辑。
 
 ## 安全注意

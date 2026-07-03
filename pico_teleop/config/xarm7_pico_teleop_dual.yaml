@@ -9,6 +9,12 @@ XRConfig:
   stop_button: "right_b"
   max_frame_age_s: 0.25
 
+GripperBridge:
+  driver: "none"  # none or changingtek
+  publish_redis: false
+  redis_url: "redis://localhost:6379/0"
+  redis_key: "motion:ref:latest"
+
 L:
   RobotConfig:
     robot_ip: "192.168.1.29"
