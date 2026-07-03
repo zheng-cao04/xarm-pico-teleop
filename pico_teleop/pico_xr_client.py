@@ -182,6 +182,7 @@ class PicoXRClient:
             "right_a": right_a,
             "right_b": right_b,
             "right_click": right_click,
+            "hmd_valid": bool(np.linalg.norm(hmd_pose[3:]) > 0.5),
         }
         return XRFrame(frame_id, recv_time, link_pos, link_quat_xyzw, button_states, body_imu)
 

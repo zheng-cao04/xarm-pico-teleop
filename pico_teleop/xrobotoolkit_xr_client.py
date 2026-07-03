@@ -94,6 +94,8 @@ class XRoboToolkitXRClient:
         if timestamp_ns != 0 and timestamp_ns == self._last_timestamp_ns:
             return None
 
+        get_headset_pose = getattr(self.xrt, "get_headset_pose", None)
+        hmd_pose = self._pose_array(self._safe_call(get_headset_pose, None) if callable(get_headset_pose) else None)
         left_pose = self._pose_array(self._safe_call(self.xrt.get_left_controller_pose, None))
         right_pose = self._pose_array(self._safe_call(self.xrt.get_right_controller_pose, None))
 
@@ -101,14 +103,19 @@ class XRoboToolkitXRClient:
             self._log_invalid_frame(timestamp_ns, left_pose, right_pose)
             return None
 
-        hmd_pos = np.zeros(3, dtype=np.float64)
-        hmd_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        hmd_valid = self._valid_pose(hmd_pose)
+        if hmd_valid:
+            hmd_pos, hmd_quat = self._convert_pose(hmd_pose)
+        else:
+            hmd_pos = np.zeros(3, dtype=np.float64)
+            hmd_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         left_pos, left_quat = self._convert_pose(left_pose)
         right_pos, right_quat = self._convert_pose(right_pose)
 
         self._frame_id += 1
         self._last_timestamp_ns = timestamp_ns
         button_states = self._read_buttons(timestamp_ns)
+        button_states["hmd_valid"] = hmd_valid
 
         return XRFrame(
             frame_id=self._frame_id,

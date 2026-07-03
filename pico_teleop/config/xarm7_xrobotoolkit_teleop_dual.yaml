@@ -6,6 +6,7 @@ XRConfig:
   deadman_threshold: 0.5
   recalibrate_button: "right_a"
   stop_button: "right_b"
+  stop_robot_on_stop_button: true
   max_frame_age_s: 0.25
 
 GripperBridge:
@@ -16,38 +17,52 @@ GripperBridge:
 
 L:
   RobotConfig:
-    robot_ip: "192.168.1.29"
+    robot_ip: "192.168.1.239"
     robot_speed: 100
     robot_acc: 500
-    gripper_type: 2
-    start_joints: [0, 0, 0, 1.5708, 0, 1.5708, 0]
+    reset_speed: 30
+    reset_acc: 100
+    gripper_type: 0
+    start_joints: [0, 0, 0, 0, 0, 0, 0]
+    start_joint_speed: 0.25
+    start_joint_acc: 0.5
+    move_to_start: true
+    init_gripper_pose: true
 
   TeleoperatorConfig:
     controller: "left"
-    use_gripper: true
+    use_gripper: false
     gripper_input: "trigger"
     deadman_input: "grip"
     position_scale: 1.0
-    position_delta_frame: "world"
+    action_scale: 0.2
+    position_delta_frame: "head_yaw"
     controller_to_robot_eef: [0, 0, 0, 0, 0, -1.570796]
-    robot_base_pose: [350, 0, 250, 3.141593, 0, -1.570796]
+    robot_base_pose: [205.05, -0.055, 119.202, -3.1415, 0.0001, 0.0]
     use_current_robot_pose_as_base: true
 
 R:
   RobotConfig:
-    robot_ip: "192.168.1.195"
+    robot_ip: "192.168.1.208"
     robot_speed: 100
     robot_acc: 500
-    gripper_type: 2
-    start_joints: [0, 0, 0, 1.5708, 0, 1.5708, 0]
+    reset_speed: 30
+    reset_acc: 100
+    gripper_type: 0
+    start_joints: [0, 0, 0, 0, 0, 0, 0]
+    start_joint_speed: 0.25
+    start_joint_acc: 0.5
+    move_to_start: true
+    init_gripper_pose: true
 
   TeleoperatorConfig:
     controller: "right"
-    use_gripper: true
+    use_gripper: false
     gripper_input: "trigger"
     deadman_input: "grip"
     position_scale: 1.0
-    position_delta_frame: "world"
+    action_scale: 0.2
+    position_delta_frame: "head_yaw"
     controller_to_robot_eef: [0, 0, 0, 0, 0, 1.570796]
-    robot_base_pose: [350, 0, 250, 3.141593, 0, -1.570796]
+    robot_base_pose: [205.05, -0.055, 119.202, -3.1415, 0.0001, 0.0]
     use_current_robot_pose_as_base: true

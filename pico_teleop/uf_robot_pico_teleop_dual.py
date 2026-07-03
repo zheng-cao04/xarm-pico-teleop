@@ -38,6 +38,7 @@ class PicoXRConfig:
     deadman_threshold: float = 0.5
     recalibrate_button: str = "right_a"
     stop_button: str = "right_b"
+    stop_robot_on_stop_button: bool = True
     max_frame_age_s: float = 0.25
 
 
@@ -47,12 +48,18 @@ class RobotConfig:
     robot_mode: int = 7
     robot_speed: int = 100
     robot_acc: int = 500
+    reset_speed: int = 80
+    reset_acc: int = 300
     gripper_type: int = 0
     gripper_port: str | None = None
     gripper_speed: int = -1
     gripper_force: int = -1
     start_joints: Tuple[float, ...] = (0, 0, 0, np.pi / 2, 0, np.pi / 2, 0)
+    start_joint_speed: float = 0.25
+    start_joint_acc: float = 0.5
     start_tcp_pose: Tuple[float, ...] | None = None
+    move_to_start: bool = True
+    init_gripper_pose: bool = True
 
 
 @dataclass
@@ -62,6 +69,7 @@ class PicoArmTeleopConfig:
     gripper_input: str = "trigger"
     deadman_input: str = "grip"
     position_scale: float = 1.0
+    action_scale: float = 1.0
     position_delta_frame: str = "world"
     controller_to_robot_eef: Tuple[float, ...] = (0, 0, 0, 0, 0, 0)
     robot_base_pose: Tuple[float, ...] = DEFAULT_TCP_POSE
@@ -199,6 +207,10 @@ class SimulatedUFRobot:
         self.reset_count += 1
         logger.info("%s sim robot reset to TCP pose %s", self.name, self.pose_rpy)
 
+    def move_to_start_pose(self):
+        self.reset_pose(self.config.start_tcp_pose or DEFAULT_TCP_POSE)
+        return 0
+
     def get_position(self, is_axis_angle=False):
         if is_axis_angle:
             return 0, list(self.pose_aa)
@@ -218,6 +230,11 @@ class SimulatedUFRobot:
         self.gripper_norm = _clamp01(gripper_norm)
         if self.last_action is not None and len(self.last_action) > 6:
             self.last_action[6] = self.gripper_norm
+        return 0
+
+    def emergency_stop(self):
+        self.last_action = None
+        logger.info("%s sim robot software stop", self.name)
         return 0
 
 
@@ -332,13 +349,9 @@ class PicoArmTeleop:
             raise ValueError(f"{name}: controller must be 'left' or 'right'")
         self.name = name
         self.config = config
+        self.robot_config = robot_config
         self.controller_index = 1 if config.controller == "left" else 2
-        if robot is not None:
-            self.robot = robot
-        else:
-            from ufactory_devices.robot import UFRobot
-
-            self.robot = UFRobot(robot_config)
+        self.robot = robot
 
         self.controller_to_robot_matrix = Transformations.xyzrpy_to_rotation_matrix(
             *self.config.controller_to_robot_eef
@@ -346,25 +359,60 @@ class PicoArmTeleop:
         self.robot_base_matrix = Transformations.xyzrpy_to_rotation_matrix(*self.config.robot_base_pose)
         self.begin_controller_robot_matrix = None
         self.begin_controller_pos_mm = None
-        if self.config.position_delta_frame not in ("world", "controller"):
-            raise ValueError(f"{name}: position_delta_frame must be 'world' or 'controller'")
+        self.begin_head_yaw_matrix = None
+        if self.config.position_delta_frame == "head":
+            self.config.position_delta_frame = "head_yaw"
+        if self.config.position_delta_frame not in ("world", "controller", "head_yaw"):
+            raise ValueError(f"{name}: position_delta_frame must be 'world', 'controller', or 'head_yaw'")
+        if self.config.action_scale < 0:
+            raise ValueError(f"{name}: action_scale must be >= 0")
+        if self.config.action_scale > 1.0:
+            logger.warning("%s: action_scale %.3f amplifies controller translation", self.name, self.config.action_scale)
+
+    def connect_robot(self):
+        if self.robot is not None:
+            return
+        from ufactory_devices.robot import UFRobot
+
+        logger.info("%s: connecting xArm at %s", self.name, self.robot_config.robot_ip)
+        self.robot = UFRobot(self.robot_config)
+        logger.info("%s: xArm connected", self.name)
 
     def clear_reference(self):
         self.begin_controller_robot_matrix = None
         self.begin_controller_pos_mm = None
-        if hasattr(self.robot, "last_action"):
+        self.begin_head_yaw_matrix = None
+        if self.robot is not None and hasattr(self.robot, "last_action"):
             self.robot.last_action = None
 
     def pause_output(self):
-        if hasattr(self.robot, "last_action"):
+        if self.robot is not None and hasattr(self.robot, "last_action"):
             self.robot.last_action = None
 
+    def move_robot_to_base_pose(self):
+        self.connect_robot()
+        if not hasattr(self.robot, "reset_pose"):
+            return
+        code = self.robot.reset_pose(self.config.robot_base_pose)
+        if code not in (None, 0):
+            raise RuntimeError(f"{self.name}: failed to reset robot to configured base pose, code={code}")
+
+    def move_robot_to_start_pose(self):
+        self.connect_robot()
+        move_to_start_pose = getattr(self.robot, "move_to_start_pose", None)
+        if not callable(move_to_start_pose):
+            raise RuntimeError(f"{self.name}: robot does not expose move_to_start_pose()")
+        code = move_to_start_pose()
+        if code not in (None, 0):
+            raise RuntimeError(f"{self.name}: failed to move robot to start pose, code={code}")
+
     def reset_reference(self, frame: XRFrame, use_current_robot_pose: bool | None = None, reset_robot_to_base=False):
+        self.connect_robot()
         if use_current_robot_pose is None:
             use_current_robot_pose = self.config.use_current_robot_pose_as_base
 
-        if reset_robot_to_base and hasattr(self.robot, "reset_pose"):
-            self.robot.reset_pose(self.config.robot_base_pose)
+        if reset_robot_to_base:
+            self.move_robot_to_base_pose()
 
         if use_current_robot_pose:
             code, pose = self.robot.get_position(is_axis_angle=False)
@@ -377,8 +425,29 @@ class PicoArmTeleop:
             self.robot_base_matrix = Transformations.xyzrpy_to_rotation_matrix(*self.config.robot_base_pose)
         self.begin_controller_robot_matrix = self._controller_robot_matrix(frame)
         self.begin_controller_pos_mm = self._controller_pos_mm(frame)
+        self.begin_head_yaw_matrix, head_yaw, head_yaw_valid = self._head_yaw_matrix(frame)
         base_mode = "current robot pose" if use_current_robot_pose else "configured base pose"
-        logger.info("%s: teleop reference reset from %s controller using %s", self.name, self.config.controller, base_mode)
+        if self.config.position_delta_frame == "head_yaw":
+            if head_yaw_valid:
+                logger.info(
+                    "%s: teleop reference reset from %s controller using %s, head yaw %.1f deg",
+                    self.name,
+                    self.config.controller,
+                    base_mode,
+                    np.degrees(head_yaw),
+                )
+            else:
+                logger.warning(
+                    "%s: teleop reference reset with head_yaw mode but no valid HMD pose; using world-aligned yaw",
+                    self.name,
+                )
+        else:
+            logger.info(
+                "%s: teleop reference reset from %s controller using %s",
+                self.name,
+                self.config.controller,
+                base_mode,
+            )
 
     def enabled(self, frame: XRFrame, xr_config: PicoXRConfig):
         if not xr_config.use_deadman:
@@ -407,11 +476,19 @@ class PicoArmTeleop:
             base_pos = self.robot_base_matrix[:3, 3]
             pos_delta = self._controller_pos_mm(frame) - self.begin_controller_pos_mm
             action[:3] = (base_pos + pos_delta).tolist()
+        elif self.config.position_delta_frame == "head_yaw":
+            base_pos = self.robot_base_matrix[:3, 3]
+            pos_delta = self._controller_pos_mm(frame) - self.begin_controller_pos_mm
+            if self.begin_head_yaw_matrix is None:
+                self.begin_head_yaw_matrix = self._head_yaw_matrix(frame)[0]
+            action[:3] = (base_pos + self.begin_head_yaw_matrix.T @ pos_delta).tolist()
+        action[:3] = self._scale_action_position(action[:3]).tolist()
         if self.config.use_gripper:
             action.append(self.gripper_norm_from_frame(frame))
         return action
 
     def send_action(self, action):
+        self.connect_robot()
         return self.robot.send_action(action)
 
     def gripper_norm_from_frame(self, frame: XRFrame):
@@ -435,6 +512,18 @@ class PicoArmTeleop:
     def current_gripper_norm(self):
         return _clamp01(getattr(self.robot, "gripper_norm", 0.0))
 
+    def emergency_stop(self):
+        if self.robot is None:
+            return
+        self.clear_reference()
+        emergency_stop = getattr(self.robot, "emergency_stop", None)
+        if not callable(emergency_stop):
+            logger.warning("%s: robot does not expose emergency_stop()", self.name)
+            return
+        code = emergency_stop()
+        if code not in (None, 0):
+            logger.error("%s: software stop returned code %s", self.name, code)
+
     def _controller_robot_matrix(self, frame: XRFrame):
         x, y, z = self._controller_pos_mm(frame).tolist()
         quat_xyzw = frame.link_quat_xyzw[self.controller_index]
@@ -450,6 +539,30 @@ class PicoArmTeleop:
         pos_m = frame.link_pos[self.controller_index]
         return pos_m * 1000.0 * self.config.position_scale
 
+    def _head_yaw_matrix(self, frame: XRFrame):
+        hmd_valid = bool(frame.button_states.get("hmd_valid", True))
+        quat_xyzw = np.asarray(frame.link_quat_xyzw[0], dtype=np.float64)
+        if not hmd_valid or np.linalg.norm(quat_xyzw) < 0.5:
+            return np.eye(3), 0.0, False
+        rot = Transformations.quaternion_to_rotation_matrix(quat_xyzw)
+        yaw = float(np.arctan2(rot[1, 0], rot[0, 0]))
+        cos_yaw = np.cos(yaw)
+        sin_yaw = np.sin(yaw)
+        yaw_matrix = np.array(
+            [
+                [cos_yaw, -sin_yaw, 0.0],
+                [sin_yaw, cos_yaw, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+        return yaw_matrix, yaw, True
+
+    def _scale_action_position(self, target_xyz):
+        base_pos = self.robot_base_matrix[:3, 3]
+        target_pos = np.asarray(target_xyz, dtype=float)
+        return base_pos + (target_pos - base_pos) * self.config.action_scale
+
 
 class PicoDualArmTeleop:
     def __init__(
@@ -459,6 +572,9 @@ class PicoDualArmTeleop:
         left_robot_config: RobotConfig,
         right_config: PicoArmTeleopConfig,
         right_robot_config: RobotConfig,
+        active_arm: str = "both",
+        start_at_base: bool = False,
+        start_at_initial: bool = False,
         sim_config: SimConfig | None = None,
         gripper_bridge_config: GripperBridgeConfig | None = None,
     ):
@@ -468,11 +584,25 @@ class PicoDualArmTeleop:
         right_robot = SimulatedUFRobot("R", right_robot_config) if sim_config is not None else None
         self.left = PicoArmTeleop("L", left_config, left_robot_config, robot=left_robot)
         self.right = PicoArmTeleop("R", right_config, right_robot_config, robot=right_robot)
+        self.active_arm = active_arm
+        self.active_arms = self._select_active_arms(active_arm)
+        self.start_at_base = start_at_base
+        self.start_at_initial = start_at_initial
         self.sim_config = sim_config
         self.sim_viewer = None
         self.gripper_bridge = GripperBridge(gripper_bridge_config or GripperBridgeConfig())
+        self._arm_was_enabled = {arm.name: False for arm in (self.left, self.right)}
         self._last_recalibrate_pressed = False
         self._last_stop_pressed = False
+
+    def _select_active_arms(self, active_arm):
+        if active_arm == "left":
+            return (self.left,)
+        if active_arm == "right":
+            return (self.right,)
+        if active_arm == "both":
+            return (self.left, self.right)
+        raise ValueError("active_arm must be one of: left, right, both")
 
     def shutdown(self):
         if self.xr_client is not None:
@@ -497,6 +627,37 @@ class PicoDualArmTeleop:
             return MujocoSimViewer(sim_config, (self.left, self.right))
         raise ValueError("sim viewer must be one of: plot, console, mujoco, none")
 
+    def _connect_real_robots_if_needed(self):
+        if self.sim_config is not None:
+            return
+        for arm in self.active_arms:
+            arm.connect_robot()
+
+    def _software_stop_active_arms(self):
+        for arm in self.active_arms:
+            try:
+                arm.emergency_stop()
+            except Exception as exc:
+                logger.exception("%s: software stop failed: %s", arm.name, exc)
+
+    def reset_to_base_only(self):
+        if self.sim_config is not None:
+            raise RuntimeError("--reset-to-base-only is intended for real xArm mode")
+        logger.warning("reset-only mode: connecting active arm(s) and moving to configured robot_base_pose")
+        self._connect_real_robots_if_needed()
+        for arm in self.active_arms:
+            arm.move_robot_to_base_pose()
+        logger.info("reset-only mode complete")
+
+    def initial_position_only(self):
+        if self.sim_config is not None:
+            raise RuntimeError("--initial-position-only is intended for real xArm mode")
+        logger.warning("initial-position-only mode: connecting active arm(s) and moving to configured start pose")
+        self._connect_real_robots_if_needed()
+        for arm in self.active_arms:
+            arm.move_robot_to_start_pose()
+        logger.info("initial-position-only mode complete")
+
     def run(self):
         if self.xr_client is None:
             self.xr_client = _make_xr_client(self.xr_config)
@@ -513,50 +674,104 @@ class PicoDualArmTeleop:
                 "controller poses. Restart the XRoboToolkit PICO app / PC Service if this persists."
             )
 
-        self.left.reset_reference(first_frame)
-        self.right.reset_reference(first_frame)
+        if self.sim_config is None:
+            logger.info("valid XR frame received; connecting active real xArm(s): %s", self.active_arm)
+            self._connect_real_robots_if_needed()
+            logger.info("waiting for fresh XR frame after xArm initialization")
+            fresh_frame = self.xr_client.get_frame(timeout=5.0)
+            if fresh_frame is not None:
+                first_frame = fresh_frame
+
+        if self.start_at_base:
+            logger.warning("moving active arm(s) to configured robot_base_pose before teleop starts")
+            for arm in self.active_arms:
+                arm.move_robot_to_base_pose()
+            fresh_frame = self.xr_client.get_frame(timeout=5.0)
+            if fresh_frame is not None:
+                first_frame = fresh_frame
+        elif self.start_at_initial:
+            logger.warning("moving active arm(s) to configured start pose before teleop starts")
+            for arm in self.active_arms:
+                arm.move_robot_to_start_pose()
+            fresh_frame = self.xr_client.get_frame(timeout=5.0)
+            if fresh_frame is not None:
+                first_frame = fresh_frame
+
+        for arm in self.active_arms:
+            arm.reset_reference(first_frame)
         if self.sim_config is not None and self.sim_viewer is None:
             self.sim_viewer = self._make_sim_viewer(self.sim_config)
-        logger.info("teleop loop started")
+        logger.info("teleop loop started for active arm(s): %s", self.active_arm)
 
         while True:
             loop_start = time.time()
             frame = self.xr_client.get_frame(timeout=1.0)
             if frame is None:
                 logger.warning("XR frame timeout")
-                self.left.clear_reference()
-                self.right.clear_reference()
+                for arm in self.active_arms:
+                    arm.clear_reference()
+                    self._arm_was_enabled[arm.name] = False
                 continue
 
             if time.time() - frame.recv_time > self.xr_config.max_frame_age_s:
-                self.left.clear_reference()
-                self.right.clear_reference()
+                for arm in self.active_arms:
+                    arm.clear_reference()
+                    self._arm_was_enabled[arm.name] = False
                 time.sleep(sleep_time)
                 continue
 
             if self._button_rising(frame, self.xr_config.stop_button, "_last_stop_pressed"):
-                logger.info("stop button pressed")
+                logger.warning("PICO stop button pressed: stopping selected arm(s) and exiting teleop")
+                if self.xr_config.stop_robot_on_stop_button:
+                    self._software_stop_active_arms()
                 break
 
             if self._button_rising(frame, self.xr_config.recalibrate_button, "_last_recalibrate_pressed"):
-                self.left.reset_reference(frame, use_current_robot_pose=False, reset_robot_to_base=True)
-                self.right.reset_reference(frame, use_current_robot_pose=False, reset_robot_to_base=True)
+                for arm in self.active_arms:
+                    arm.move_robot_to_base_pose()
+                fresh_frame = self.xr_client.get_frame(timeout=1.0)
+                if fresh_frame is not None:
+                    frame = fresh_frame
+                for arm in self.active_arms:
+                    arm.reset_reference(frame, use_current_robot_pose=False)
+                time.sleep(sleep_time)
+                continue
 
             gripper_actions = {
                 self.left.name: self.left.gripper_norm_from_frame(frame),
                 self.right.name: self.right.gripper_norm_from_frame(frame),
             }
 
-            for arm in (self.left, self.right):
-                if not arm.enabled(frame, self.xr_config):
+            for arm in self.active_arms:
+                gripper_action = gripper_actions[arm.name]
+                enabled = arm.enabled(frame, self.xr_config)
+                if not enabled:
                     arm.pause_output()
-                    code = arm.send_gripper(gripper_actions[arm.name])
+                    self._arm_was_enabled[arm.name] = False
+                    code = arm.send_gripper(gripper_action)
                     if code != 0:
                         logger.error("%s gripper command failed with code %s", arm.name, code)
                         return
                     continue
+
+                if not self._arm_was_enabled[arm.name]:
+                    # Treat grip as a clutch: controller motion while inactive must not
+                    # accumulate into a jump when the user re-enables the arm.
+                    arm.reset_reference(frame)
+                    self._arm_was_enabled[arm.name] = True
+                    code = arm.send_gripper(gripper_action)
+                    if code != 0:
+                        logger.error("%s gripper command failed with code %s", arm.name, code)
+                        return
+                    continue
+
                 if arm.begin_controller_robot_matrix is None:
                     arm.reset_reference(frame)
+                    code = arm.send_gripper(gripper_action)
+                    if code != 0:
+                        logger.error("%s gripper command failed with code %s", arm.name, code)
+                        return
+                    continue
                 action = arm.action_from_frame(frame)
                 code = arm.send_action(action)
                 if code != 0:
@@ -595,10 +810,27 @@ def _load_config(path):
         return yaml.safe_load(f)
 
 
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    normalized = value.strip().lower()
+    if normalized in ("true", "1", "yes", "y"):
+        return True
+    if normalized in ("false", "0", "no", "n"):
+        return False
+    raise argparse.ArgumentTypeError("expected true or false")
+
+
 def main():
     parser = argparse.ArgumentParser(description="PICO/OpenXR dual xArm teleoperation")
     parser.add_argument("-c", "--config", type=str, required=True, help="configuration file path")
-    parser.add_argument("--sim", action="store_true", help="run without connecting to real xArm")
+    parser.add_argument(
+        "--sim",
+        type=_parse_bool,
+        required=True,
+        metavar="{true,false}",
+        help="required safety mode: true runs simulation, false connects real xArm hardware",
+    )
     parser.add_argument(
         "--sim-viewer",
         choices=["plot", "console", "mujoco", "none"],
@@ -612,7 +844,62 @@ def main():
         default="both",
         help="MuJoCo camera/focus hint; both xArm models are displayed",
     )
+    parser.add_argument(
+        "--arm",
+        choices=["left", "right", "both"],
+        default="both",
+        help="select which arm(s) to connect and teleoperate",
+    )
+    parser.add_argument(
+        "--no-start-move",
+        action="store_true",
+        help="real xArm mode only: connect/init arms but skip moving to configured start_joints/start_tcp_pose",
+    )
+    parser.add_argument(
+        "--start-at-base",
+        action="store_true",
+        help="move selected arm(s) softly to TeleoperatorConfig.robot_base_pose before teleop starts",
+    )
+    parser.add_argument(
+        "--start-at-initial",
+        action="store_true",
+        help="move selected arm(s) to RobotConfig.start_joints/start_tcp_pose before teleop starts",
+    )
+    parser.add_argument(
+        "--reset-to-base-only",
+        action="store_true",
+        help="real xArm mode only: move selected arm(s) to robot_base_pose and exit without starting XR teleop",
+    )
+    parser.add_argument(
+        "--initial-position-only",
+        action="store_true",
+        help="real xArm mode only: move selected arm(s) to RobotConfig.start_joints/start_tcp_pose and exit",
+    )
+    parser.add_argument("--reset-speed", type=int, default=None, help="override RobotConfig.reset_speed")
+    parser.add_argument("--reset-acc", type=int, default=None, help="override RobotConfig.reset_acc")
+    parser.add_argument("--start-joint-speed", type=float, default=None, help="override RobotConfig.start_joint_speed")
+    parser.add_argument("--start-joint-acc", type=float, default=None, help="override RobotConfig.start_joint_acc")
+    parser.add_argument(
+        "--no-gripper-init",
+        action="store_true",
+        help="real xArm mode only: do not move grippers to their configured open pose during initialization",
+    )
     args = parser.parse_args()
+
+    real_motion_modes = [
+        args.start_at_base,
+        args.start_at_initial,
+        args.reset_to_base_only,
+        args.initial_position_only,
+    ]
+    if sum(bool(v) for v in real_motion_modes) > 1:
+        parser.error("choose only one of --start-at-base, --start-at-initial, --reset-to-base-only, --initial-position-only")
+    if args.sim and any(real_motion_modes):
+        parser.error("real-arm startup/reset motion options require --sim false")
+    for name in ("reset_speed", "reset_acc", "start_joint_speed", "start_joint_acc"):
+        value = getattr(args, name)
+        if value is not None and value <= 0:
+            parser.error(f"--{name.replace('_', '-')} must be positive")
 
     config = _load_config(args.config)
     xr_config = PicoXRConfig(**config.get("XRConfig", {}))
@@ -621,6 +908,30 @@ def main():
     right_config_raw = config["R"]
     left_robot_config = RobotConfig(**left_config_raw["RobotConfig"])
     right_robot_config = RobotConfig(**right_config_raw["RobotConfig"])
+    if (
+        args.no_start_move
+        or args.start_at_base
+        or args.start_at_initial
+        or args.reset_to_base_only
+        or args.initial_position_only
+    ):
+        left_robot_config.move_to_start = False
+        right_robot_config.move_to_start = False
+    if args.no_gripper_init:
+        left_robot_config.init_gripper_pose = False
+        right_robot_config.init_gripper_pose = False
+    if args.reset_speed is not None:
+        left_robot_config.reset_speed = args.reset_speed
+        right_robot_config.reset_speed = args.reset_speed
+    if args.reset_acc is not None:
+        left_robot_config.reset_acc = args.reset_acc
+        right_robot_config.reset_acc = args.reset_acc
+    if args.start_joint_speed is not None:
+        left_robot_config.start_joint_speed = args.start_joint_speed
+        right_robot_config.start_joint_speed = args.start_joint_speed
+    if args.start_joint_acc is not None:
+        left_robot_config.start_joint_acc = args.start_joint_acc
+        right_robot_config.start_joint_acc = args.start_joint_acc
     left_teleop_config = PicoArmTeleopConfig(
         **_normalize_arm_config(left_config_raw["TeleoperatorConfig"])
     )
@@ -635,7 +946,9 @@ def main():
         left_robot_config,
         right_teleop_config,
         right_robot_config,
-        gripper_bridge_config=gripper_bridge_config,
+        active_arm=args.arm,
+        start_at_base=args.start_at_base,
+        start_at_initial=args.start_at_initial,
         sim_config=SimConfig(
             viewer=args.sim_viewer,
             print_hz=args.sim_print_hz,
@@ -643,14 +956,43 @@ def main():
         )
         if args.sim
         else None,
+        gripper_bridge_config=gripper_bridge_config,
     )
 
     try:
         mode = "SIM" if args.sim else "REAL ROBOT"
-        print(f"\n********** Test PICO Teleop With Dual xArm ({mode}) **********")
+        print(f"\n********** Test PICO Teleop With xArm ({mode}, arm={args.arm}) **********")
+        if not args.sim:
+            print(f"Real mode will connect selected xArm(s) after Enter and after a valid XR frame is available: {args.arm}.")
+            if args.start_at_base:
+                print("Startup base move is enabled; selected arm(s) will move softly to robot_base_pose before teleop.")
+            elif args.start_at_initial:
+                print("Startup initial-position move is enabled; selected arm(s) will move to start_joints before teleop.")
+            elif args.reset_to_base_only:
+                print("Reset-only mode is enabled; selected arm(s) will move softly to robot_base_pose, then the program exits.")
+            elif args.initial_position_only:
+                print("Initial-position-only mode is enabled; selected arm(s) will move to start_joints, then the program exits.")
+            elif args.no_start_move:
+                print("Start motion is disabled for this run; selected arm(s) will stay at their current poses on connect.")
+            else:
+                print("Start motion is enabled; selected arm(s) may move to configured start_joints/start_tcp_pose.")
+            print("Keep physical E-stop reachable. Right-controller B sends software stop to selected arm(s) and exits.")
+            print("Right-controller A moves selected arm(s) to robot_base_pose and recalibrates.")
+        if args.reset_speed is not None or args.reset_acc is not None:
+            print(f"Reset override: speed={left_robot_config.reset_speed}, acc={left_robot_config.reset_acc}")
+        if args.start_joint_speed is not None or args.start_joint_acc is not None:
+            print(
+                "Initial joint override: "
+                f"speed={left_robot_config.start_joint_speed}, acc={left_robot_config.start_joint_acc}"
+            )
         input("Enter to control robot with PICO teleop >>> ")
         print("\n********** Teleop Control Loop Start **********")
-        teleop.run()
+        if args.reset_to_base_only:
+            teleop.reset_to_base_only()
+        elif args.initial_position_only:
+            teleop.initial_position_only()
+        else:
+            teleop.run()
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:

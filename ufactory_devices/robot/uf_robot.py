@@ -55,12 +55,18 @@ class UFRobotConfig:
     robot_mode: int = 7         # 1: servo motion mode, 7: (default) cartesian online trajectory planning mode
     robot_speed: int = 250
     robot_acc: int = 1000
+    reset_speed: int = 80
+    reset_acc: int = 300
     gripper_type: int = 0       # 1: xArm Gripper, 2: xArm Gripper G2, 10: Pika Gripper, 11: Robotiq 2F-85
     gripper_port: str = None    # only used by pika gripper (gripper_type=10)
     gripper_speed: int = -1     # auto
     gripper_force: int = -1     # auto
     start_joints: Tuple[float, ...] = (0, 0, 0, np.pi/2, 0, np.pi/2, 0)
+    start_joint_speed: float = 0.25  # rad/s when is_radian=True
+    start_joint_acc: float = 0.5     # rad/s^2 when is_radian=True
     start_tcp_pose: Tuple[float, ...] = None # xyzrpy
+    move_to_start: bool = True
+    init_gripper_pose: bool = True
 
 
 class UFRobot(object):
@@ -126,15 +132,14 @@ class UFRobot(object):
         self.real_arm.set_mode(0)  # set to idle mode
         self.real_arm.set_state(0)  # set to start state
         time.sleep(0.5)
-        if self._start_tcp_pose is None:
-            self.real_arm.set_servo_angle(angle=self._start_joints, is_radian=True, wait=True)
+        if self.config.move_to_start:
+            code = self._move_to_start_pose()
+            if code not in (None, 0):
+                raise RuntimeError(f"Failed to move UF Robot to start pose! code={code}")
         else:
-            self.real_arm.set_servo_angle(angle=self._start_joints, is_radian=True, wait=True)
-            self.real_arm.set_position(*self._start_tcp_pose, speed=100, is_radian=True, wait=True)
-            _, self._start_joints = self.real_arm.get_servo_angle(is_radian=True)
-            self._start_tcp_pose = None
+            logger.info("Skipping start motion for UF Robot at %s", self.config.robot_ip)
 
-        self.robot_init(enable=False, init_gripper_pose=True)
+        self.robot_init(enable=False, init_gripper_pose=self.config.init_gripper_pose)
         self.real_arm.set_linear_spd_limit_factor(1.0)
         self.real_arm.set_collision_sensitivity(1)
 
@@ -201,6 +206,30 @@ class UFRobot(object):
             return self.real_arm.error_code
         self._send_gripper_norm(gripper_norm)
         return 0
+
+    def _move_to_start_pose(self):
+        code = self.real_arm.set_servo_angle(
+            angle=self._start_joints,
+            speed=self.config.start_joint_speed,
+            mvacc=self.config.start_joint_acc,
+            is_radian=True,
+            wait=True,
+        )
+        if code != 0:
+            return code
+        if self._start_tcp_pose is not None:
+            code = self.real_arm.set_position(
+                *self._start_tcp_pose,
+                speed=self.config.reset_speed,
+                mvacc=self.config.reset_acc,
+                is_radian=True,
+                wait=True,
+            )
+            if code != 0:
+                return code
+            _, self._start_joints = self.real_arm.get_servo_angle(is_radian=True)
+            self._start_tcp_pose = None
+        return code
     
     def get_position(self, is_axis_angle=False):
         if is_axis_angle:
@@ -208,6 +237,53 @@ class UFRobot(object):
         else:
             code, pos = self.real_arm.get_position(is_radian=True)
         return code, pos
+
+    def reset_pose(self, pose_rpy):
+        if not self.real_arm.connected:
+            raise ConnectionError()
+        pose = list(pose_rpy[:6])
+        self.real_arm.clean_error()
+        self.real_arm.clean_warn()
+        time.sleep(0.1)
+        _, err_warn = self.real_arm.get_err_warn_code()
+        if err_warn[0] != 0:
+            raise RuntimeError(f"Refusing reset_pose while controller error is active: {err_warn[0]}")
+        self.real_arm.motion_enable(True)
+        self.real_arm.set_mode(0)
+        self.real_arm.set_state(0)
+        code = self.real_arm.set_position(
+            *pose,
+            speed=self.config.reset_speed,
+            mvacc=self.config.reset_acc,
+            is_radian=True,
+            wait=True,
+        )
+        self._cmd_cnt = 0
+        self.robot_init(enable=False, init_gripper_pose=False)
+        return code
+
+    def move_to_start_pose(self):
+        if not self.real_arm.connected:
+            raise ConnectionError()
+        self.real_arm.clean_error()
+        self.real_arm.clean_warn()
+        time.sleep(0.1)
+        _, err_warn = self.real_arm.get_err_warn_code()
+        if err_warn[0] != 0:
+            raise RuntimeError(f"Refusing move_to_start_pose while controller error is active: {err_warn[0]}")
+        self.real_arm.motion_enable(True)
+        self.real_arm.set_mode(0)
+        self.real_arm.set_state(0)
+        code = self._move_to_start_pose()
+        self._cmd_cnt = 0
+        self.robot_init(enable=False, init_gripper_pose=False)
+        return code
+
+    def emergency_stop(self):
+        if not self.real_arm.connected:
+            return 0
+        self._cmd_cnt = 0
+        return self.real_arm.emergency_stop()
 
     def send_action(self, action):
         if not self.real_arm.connected:
